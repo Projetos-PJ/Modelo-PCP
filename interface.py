@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
+import logging
 from datetime import datetime
 import plotly.graph_objects as go
 
@@ -50,7 +52,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# O título agora aparecerá sobre o 'div' sem ser coberto
+# O título agora aparecerá sobre o 'div'
 if page == "Base Consolidada":
     st.title("Base Consolidada")
 if page == "PCP":
@@ -60,19 +62,17 @@ if page == "PCP":
 if 'pcp' not in st.session_state:
     try:
         with st.spinner('Carregando...'):
-            uploaded_file = st.file_uploader("Upload the PCP Auto.xlsx file", type=["xlsx"])
-            if uploaded_file is not None:
-                st.session_state.pcp = pd.read_excel(uploaded_file, sheet_name=None)
-            else:
-                st.error("Please upload the PCP Auto.xlsx file to proceed.", icon="🚨")
-                st.stop()
+            downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+            file_path = os.path.join(downloads_path, "PCP Auto.xlsx")  # Caminho para o arquivo na pasta de downloads
+            st.session_state.pcp = pd.read_excel(file_path, sheet_name=None)
     except FileNotFoundError:
-        st.error("Arquivo PCP Auto.xlsx não encontrado. Verifique o caminho do arquivo.", icon="🚨")
+        st.error("Arquivo PCP Auto.xlsx não encontrado na pasta de downloads. Verifique se o arquivo existe lá.", icon="🚨")
         st.stop()
     except Exception as e:
         st.error(f"Erro ao carregar o arquivo: {e}", icon="🚨")
+
 # Precompute a dictionary for faster lookups
-sheet_lookup = {sheet.replace(" ", "").lower(): data for sheet, data in pcp.items()}
+sheet_lookup = {sheet.replace(" ", "").lower(): data for sheet, data in st.session_state.pcp.items()}
 
 def nucleo_func(nucleo_digitado):
     nucleo_digitado = nucleo_digitado.replace(" ", "").lower()
@@ -82,6 +82,7 @@ def nucleo_func(nucleo_digitado):
         if nucleo_digitado == pcp_sheet.replace(" ", "").lower():
             return pcp[pcp_sheet]
     return None
+
 # Inicializando session_state para manter os valores dos filtros
 if 'nucleo' not in st.session_state:
     st.session_state.nucleo = None
@@ -111,6 +112,7 @@ with colni:
 with coltec:
     if st.button("NTec"):
         st.session_state.nucleo = 'NTec'
+
 if page == "Base Consolidada":
     # Carregar o núcleo selecionado
     with st.spinner('Carregando...'):
@@ -194,13 +196,11 @@ if page == "Base Consolidada":
 
                     df = df.drop('N° Alocações', axis=1, errors='ignore')
 
-
             if df.empty:
                 st.write("Sem informações para os dados filtrados")
             else:
                 df = df.dropna(axis=1, how='all')
                 df
-
 
             if nome and nome in cronograma['Membro'].values:
                 st.write('---')
@@ -222,20 +222,11 @@ if page == "Base Consolidada":
                 mes = datetime.today().month
                 for col in date_columns_gantt:
                     try:
-                        invalid_dates = cronograma[col][~cronograma[col].str.match(r'\d{2}/\d{2}/\d{4}', na=False)]
-                        if not invalid_dates.empty:
-                            st.warning(f"Coluna '{col}' contém datas inválidas: {invalid_dates.tolist()}", icon="⚠️")
                         cronograma[col] = pd.to_datetime(cronograma[col], format='%d/%m/%Y', errors='coerce')
                     except Exception as e:
                         st.error(f"Erro ao converter a coluna '{col}' para datetime: {e}", icon="🚨")
-                    cronograma["Fim trimestre"] = datetime(datetime.today().year, 6, 30)
-                elif mes in [7, 8, 9]:
-                    cronograma["Inicio trimestre"] = datetime(datetime.today().year, 7, 1)
-                    cronograma["Fim trimestre"] = datetime(datetime.today().year, 9, 30)
-                else:
-                    cronograma["Inicio trimestre"] = datetime(datetime.today().year, 10, 1)
-                    cronograma["Fim trimestre"] = datetime(datetime.today().year, 12, 31)
-                
+                cronograma["Fim trimestre"] = datetime(datetime.today().year, 6, 30)
+         
                 cronograma = cronograma.dropna(axis=1, how='all')
                 nome_formatado = ' '.join([part.capitalize() for part in nome.split('.')])
                 st.subheader(nome_formatado)
@@ -450,30 +441,30 @@ if page == 'PCP':
         return afinidade
     
     match st.session_state.nucleo:
-            case 'NCiv':
-                escopos = ['Arquitetônico', 'Design de Interiores', 'Elétrico/Fotovoltaico', 'Estrutural', 'Hidrossanitário', 'Real State', 'Não mapeado']
-            case "NCon":
-                escopos = ['Gestão de Processos', 'Pesquisa de Mercado', 'Planejamento Estratégico', 'Modelagem e Projeção','Não mapeado']
-            case 'NDados':
-                escopos = ['Ciência de Dados', 'DSaaS', 'Engenharia de Dados', 'Inteligência Artificial', 'Inteligência de Negócios', 'Não mapeado']
-            case "NI":
-                escopos = ['Inovacamp', 'VBaaS', 'Não mapeado']
-            case 'NTec':
-                escopos = ['Delivery', 'Descoberta de Produto', 'Discovery', 'Escopo Aberto', 'Não mapeado']
-            case _:
-                escopos = ['Não mapeado']
+        case 'NCiv':
+            escopos = ['Arquitetônico', 'Design de Interiores', 'Elétrico/Fotovoltaico', 'Estrutural', 'Hidrossanitário', 'Real State', 'Não mapeado']
+        case "NCon":
+            escopos = ['Gestão de Processos', 'Pesquisa de Mercado', 'Planejamento Estratégico', 'Modelagem e Projeção','Não mapeado']
+        case 'NDados':
+            escopos = ['Ciência de Dados', 'DSaaS', 'Engenharia de Dados', 'Inteligência Artificial', 'Inteligência de Negócios', 'Não mapeado']
+        case "NI":
+            escopos = ['Inovacamp', 'VBaaS', 'Não mapeado']
+        case 'NTec':
+            escopos = ['Delivery', 'Descoberta de Produto', 'Discovery', 'Escopo Aberto', 'Não mapeado']
+        case _:
+            escopos = ['Não mapeado']
 
-        escopo = st.selectbox(
-            index=opcoes.index(st.session_state.escopo) if st.session_state.escopo else None  # Certifique-se que o índice inicial seja 0
-        )
+    escopo = st.selectbox(
+        index=opcoes.index(st.session_state.escopo) if st.session_state.escopo else None  # Certifique-se que o índice inicial seja 0
+    )
+    colinicio, colfim = st.columns(2)
     with colinicio:
         inicio = st.date_input("*Início*", min_value=datetime(datetime.today().year - 1, 1, 1).date(), max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=datetime.today().date(), format="%d/%m/%Y")
     with colfim:
         fim = st.date_input("*Fim*", min_value=inicio, max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=inicio, format="%d/%m/%Y")
-    with colinicio:
-        inicio = st.date_input("*Início*", min_value=datetime(datetime.today().year - 1, 1, 1).date(), max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=datetime.today().date(), format="DD/MM/YYYY")
-    with colfim:
-        fim = st.date_input("*Fim*", min_value=inicio, max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=inicio, format="DD/MM/YYYY")
+    
+
+    inicio_novo_projeto = pd.Timestamp(inicio)
 
     inicio_novo_projeto = pd.Timestamp(inicio)
 
@@ -495,7 +486,6 @@ if page == 'PCP':
         try:
             df[col] = pd.to_datetime(df[col], errors='coerce')
         except Exception as e:
-            import logging
             logging.error(f"Error converting column '{col}' to datetime at row index {df.index[df[col].isna()].tolist()}: {e}")
 
     # Calcula disponibilidade
