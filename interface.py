@@ -134,9 +134,6 @@ if page == "Base Consolidada":
             def convert_and_format_date(df, column):
                 try:
                     converted_dates = pd.to_datetime(df[column], format='%d/%m/%Y', errors='coerce')
-                    invalid_dates = df[column][converted_dates.isna()]
-                    if not invalid_dates.empty:
-                        st.warning(f"Coluna '{column}' contém datas inválidas: {invalid_dates.tolist()}", icon="⚠️")
                     df[column] = converted_dates.dt.strftime('%d/%m/%Y')
                 except Exception as e:
                     st.error(f"Erro ao converter a coluna '{column}': {e}", icon="🚨")
