@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Ambiente de Projetos", layout="wide")
@@ -37,7 +37,58 @@ st.markdown(
     }
 
     hr:not([size]) {
-        height: 2px;  /* Garantindo que a altura será 2px para hr sem atributo size */
+        height: 2px;  /* Garantindo que a altura será 2px para hr sem atributo size para manter a consistência */
+    }
+    .st-emotion-cache-10d29ip hr {
+        background-color: #064381;
+        border-bottom: 2px solid #064381;
+    }
+    </style>
+    <div class="fullscreen-div">
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+st.set_page_config(page_title="Ambiente de Projetos", layout="wide")
+
+page = st.sidebar.selectbox(
+    "Escolha uma página",
+    ("Base Consolidada", "PCP")
+)
+
+# Definindo o estilo CSS para o div
+st.markdown(
+    """
+    <style>
+    * {
+        font-family: 'Poppins', sans-serif !important;
+    }
+
+    .st-emotion-cache-ttupiz {
+        position: fixed;
+        top: 0px;
+        left: 0px;
+        right: 0px;
+        height: 4.5rem;
+        background: #064381;
+        outline: none;
+        z-index: 999990;
+        display: block;
+    }
+    hr {
+        border: 0;
+        background-color: #064381;  /* Cor do tracinho */
+        height: 2px;  /* Definindo diretamente a altura */
+    }
+
+    hr:not([size]) {
+        height: 2px;  /* Garantindo que a altura será 2px para hr sem atributo size para manter a consistência */
     }
     .st-emotion-cache-10d29ip hr {
         background-color: #064381;
@@ -58,8 +109,15 @@ if page == "PCP":
 
 # Carregando os dados
 if 'pcp' not in st.session_state:
-    with st.spinner('Carregando...'):
-        st.session_state.pcp = pd.read_excel(r"Ambiente-Modelo\Include\PCP Auto.xlsx", sheet_name=None)
+    try:
+        with st.spinner('Carregando...'):
+            st.session_state.pcp = pd.read_excel(r"Ambiente-Modelo\Include\PCP Auto.xlsx", sheet_name=None)
+    except FileNotFoundError:
+        st.error("Arquivo PCP Auto.xlsx não encontrado. Verifique o caminho do arquivo.", icon="🚨")
+        st.stop()
+    except Exception as e:
+        st.error(f"Erro ao carregar o arquivo: {e}", icon="🚨")
+        st.stop()
     
 # Acesso aos dados armazenados
 pcp = st.session_state.pcp
@@ -105,21 +163,28 @@ if page == "Base Consolidada":
     with st.spinner('Carregando...'):
         if st.session_state.nucleo != None:
             df = nucleo_func(st.session_state.nucleo)
+            if df is None:
+                st.warning(f"Nenhum dado encontrado para o núcleo: {st.session_state.nucleo}", icon="⚠️")
+                st.stop()
             df.replace('-', np.nan, inplace=True)
             cronograma = df
-            df['Início previsto Projeto 1'] = (pd.to_datetime(df['Início previsto Projeto 1'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            df['Início previsto Projeto 2'] = (pd.to_datetime(df['Início previsto Projeto 2'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            # df['Início previsto Projeto 3'] = (pd.to_datetime(df['Início previsto Projeto 3'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            df['Início Real Projeto 1'] = (pd.to_datetime(df['Início Real Projeto 1'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            df['Início Real Projeto 2'] = (pd.to_datetime(df['Início Real Projeto 2'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            # df['Início Real Projeto 3'] = (pd.to_datetime(df['Início Real Projeto 3'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            df['Fim previsto do Projeto 1 (sem atraso)'] = (pd.to_datetime(df['Fim previsto do Projeto 1 (sem atraso)'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            df['Fim previsto do Projeto 2 (sem atraso)'] = (pd.to_datetime(df['Fim previsto do Projeto 2 (sem atraso)'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            # df['Fim previsto do Projeto 3 (sem atraso)'] = (pd.to_datetime(df['Fim previsto Projeto 3 (sem atraso)'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            df['Fim estimado do Projeto 1 (com atraso)'] = (pd.to_datetime(df['Fim estimado do Projeto 1 (com atraso)'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            df['Fim estimado do Projeto 2 (com atraso)'] = (pd.to_datetime(df['Fim estimado do Projeto 2 (com atraso)'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
-            # df['Fim estimado do Projeto 3 (com atraso)'] = (pd.to_datetime(df['Fim estimado do Projeto 3 (com atraso)'], format='%d/%m/%Y', errors='coerce')).dt.strftime('%d/%m/%Y')
 
+            date_columns = [
+                'Início previsto Projeto 1', 'Início previsto Projeto 2',
+                'Início Real Projeto 1', 'Início Real Projeto 2',
+                'Fim previsto do Projeto 1 (sem atraso)', 'Fim previsto do Projeto 2 (sem atraso)',
+                'Fim estimado do Projeto 1 (com atraso)', 'Fim estimado do Projeto 2 (com atraso)'
+            ]
+
+            def convert_and_format_date(df, column):
+                try:
+                    df[column] = pd.to_datetime(df[column], format='%d/%m/%Y', errors='coerce').dt.strftime('%d/%m/%Y')
+                except Exception as e:
+                    st.error(f"Erro ao converter a coluna '{column}': {e}", icon="🚨")
+                return df[column]
+
+            for col in date_columns:
+                df[col] = convert_and_format_date(df, col)
             
             # Filtros
             colcargo, colnome, colaloc = st.columns(3)
@@ -152,54 +217,32 @@ if page == "Base Consolidada":
                     df = df[df['Cargo no núcleo'] == cargo]
 
                 if aloc:
-                    filtrados = []
-                    
-                    # Para cada linha no DataFrame, calcular o número de alocações
-                    for _, row in df.iterrows():
+                    def count_alocations(row):
                         alocacoes = 0
+                        if pd.notna(row['Projeto 1']): alocacoes += 1
+                        if pd.notna(row['Projeto 2']): alocacoes += 1
+                        if pd.notna(row['Projeto 3']): alocacoes += 1
+                        if pd.notna(row['Projeto Interno 1']): alocacoes += 1
+                        if pd.notna(row['Projeto Interno 2']): alocacoes += 1
+                        if pd.notna(row['Projeto Interno 3']): alocacoes += 1
+                        if pd.notna(row['Cargo WI']): alocacoes += 1
+                        if pd.notna(row['Cargo MKT']): alocacoes += 1
                         try:
-                            if pd.notna(row['Projeto 1']): alocacoes += 1
+                            if row['N° Aprendizagens'] != 0: alocacoes += row['N° Aprendizagens']
                         except: pass
-                        try:
-                            if pd.notna(row['Projeto 2']): alocacoes += 1
-                        except: pass
-                        try:
-                            if pd.notna(row['Projeto 3']): alocacoes += 1
-                        except: pass
-                        try:
-                            if pd.notna(row['Projeto Interno 1']): alocacoes += 1
-                        except: pass
-                        try:
-                            if pd.notna(row['Projeto Interno 2']): alocacoes += 1
-                        except: pass
-                        try:
-                            if pd.notna(row['Projeto Interno 3']): alocacoes += 1
-                        except: pass
-                        try:
-                            if pd.notna(row['Cargo WI']): alocacoes += 1
-                        except: pass
-                        try:
-                            if pd.notna(row['Cargo MKT']): alocacoes += 1
-                        except: pass
-                        try:
-                            if row['N° Aprendizagens'].iloc[0] != 0: alocacoes += row['N° Aprendizagens'].iloc[0]
-                        except: pass
-                        try:
-                            if pd.notna(row['Assessoria/Liderança']): alocacoes += 1
-                        except: pass
-                        try:
-                            if pd.notna(row['Equipe de PS']): alocacoes += 1
-                        except: pass
-                        
-                        # Limitar o número de alocações para no máximo 4
-                        if alocacoes > 4: 
-                            alocacoes = 4
-                        
-                        # Verifica se o número de alocações corresponde a qualquer um dos selecionados
-                        if alocacoes in [opcoes.index(opt) for opt in aloc]:
-                            filtrados.append(row)
-                    
-                    df = pd.DataFrame(filtrados)
+                        if pd.notna(row['Assessoria/Liderança']): alocacoes += 1
+                        if pd.notna(row['Equipe de PS']): alocacoes += 1
+                        return min(alocacoes, 4)
+
+                    df['N° Alocações'] = df.apply(count_alocations, axis=1)
+
+                    # Converter as opções selecionadas para inteiros correspondentes ao número de alocações
+                    aloc_indices = [opcoes.index(opt) for opt in aloc]
+
+                    # Filtrar o DataFrame com base nos índices de alocação selecionados
+                    df = df[df['N° Alocações'].isin(aloc_indices)]
+
+                    df = df.drop('N° Alocações', axis=1, errors='ignore')
 
 
             if df.empty:
@@ -212,19 +255,20 @@ if page == "Base Consolidada":
             if nome and nome in cronograma['Membro'].values:
                 st.write('---')
                 cronograma = cronograma[cronograma['Membro'] == nome]
-                cronograma["Início Real Projeto 1"] = pd.to_datetime(cronograma["Início Real Projeto 1"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim previsto do Projeto 1 (sem atraso)"] = pd.to_datetime(cronograma["Fim previsto do Projeto 1 (sem atraso)"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim estimado do Projeto 1 (com atraso)"] = pd.to_datetime(cronograma["Fim estimado do Projeto 1 (com atraso)"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Início Real Projeto 2"] = pd.to_datetime(cronograma["Início Real Projeto 2"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim previsto do Projeto 2 (sem atraso)"] = pd.to_datetime(cronograma["Fim previsto do Projeto 2 (sem atraso)"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim estimado do Projeto 2 (com atraso)"] = pd.to_datetime(cronograma["Fim estimado do Projeto 2 (com atraso)"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Início Real Projeto 3"] = pd.to_datetime(cronograma["Início Real Projeto 3"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim previsto do Projeto 3 (sem atraso)"] = pd.to_datetime(cronograma["Fim previsto do Projeto 3 (sem atraso)"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim estimado do Projeto 3 (com atraso)"] = pd.to_datetime(cronograma["Fim estimado do Projeto 3 (com atraso)"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Início do Projeto Interno 1"] = pd.to_datetime(cronograma["Início do Projeto Interno 1"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Início do Projeto Interno 2"] = pd.to_datetime(cronograma["Início do Projeto Interno 2"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim do Projeto Interno 1"] = pd.to_datetime(cronograma["Fim do Projeto Interno 1"], format='%d/%m/%Y', errors='coerce')
-                cronograma["Fim do Projeto Interno 2"] = pd.to_datetime(cronograma["Fim do Projeto Interno 2"], format='%d/%m/%Y', errors='coerce')
+
+                date_columns_gantt = [
+                    "Início Real Projeto 1", "Fim previsto do Projeto 1 (sem atraso)", "Fim estimado do Projeto 1 (com atraso)",
+                    "Início Real Projeto 2", "Fim previsto do Projeto 2 (sem atraso)", "Fim estimado do Projeto 2 (com atraso)",
+                    "Início Real Projeto 3", "Fim previsto do Projeto 3 (sem atraso)", "Fim estimado do Projeto 3 (com atraso)",
+                    "Início do Projeto Interno 1", "Início do Projeto Interno 2", "Fim do Projeto Interno 1", "Fim do Projeto Interno 2"
+                ]
+
+                for col in date_columns_gantt:
+                    try:
+                        cronograma[col] = pd.to_datetime(cronograma[col], format='%d/%m/%Y', errors='coerce')
+                    except Exception as e:
+                        st.error(f"Erro ao converter a coluna '{col}' para datetime: {e}", icon="🚨")
+
                 mes = datetime.today().month
                 if mes in [1, 2, 3]:
                     cronograma["Inicio trimestre"] = datetime(datetime.today().year, 1, 1)
@@ -247,51 +291,38 @@ if page == "Base Consolidada":
                 yaxis = []
                 axis = 0
 
+                # Function to add traces to the Gantt chart
+                def add_gantt_trace(fig, start_col, end_col, name, color, axis):
+                    fig.add_trace(go.Scatter(
+                        x=[cronograma[start_col].iloc[0], cronograma[end_col].iloc[0]],
+                        y=[axis, axis],
+                        mode='lines',
+                        name=name,
+                        line=dict(color=color, width=4)
+                    ))
+
                 # Plotando o gráfico
                 fig = go.Figure()
-                if 'Projeto 1' in colunas:
-                    pontos.append(cronograma['Projeto 1'])
-                    axis +=1
-                    yaxis.append(axis)
-                    try:
-                        cronograma["Fim Projeto 1"] = cronograma["Fim estimado do Projeto 1 (com atraso)"]
-                    except:
-                        cronograma["Fim Projeto 1"] = cronograma["Fim previsto do Projeto 1 (sem atraso)"]
 
-                    # Adicionando o Projeto 1
-                    fig.add_trace(go.Scatter(x=[cronograma["Início Real Projeto 1"].iloc[0], cronograma["Fim Projeto 1"].iloc[0]],
-                                            y=[axis, axis],
-                                            mode='lines',
-                                            name=cronograma['Projeto 1'].iloc[0],
-                                            line=dict(color='#b4944c', width=4)))
-                if 'Projeto 2' in colunas:
-                    pontos.append(cronograma['Projeto 2'])
-                    axis +=1
-                    yaxis.append(axis)
-                    try:
-                        cronograma["Fim Projeto 2"] = cronograma["Fim estimado do Projeto 2 (com atraso)"]
-                    except:
-                        cronograma["Fim Projeto 2"] = cronograma["Fim previsto do Projeto 2 (sem atraso)"]
-                    # Adicionando o Projeto 2
-                    fig.add_trace(go.Scatter(x=[cronograma["Início Real Projeto 2"].iloc[0], cronograma["Fim Projeto 2"].iloc[0]],
-                                            y=[axis, axis],
-                                            mode='lines',
-                                            name=cronograma['Projeto 2'].iloc[0],
-                                            line=dict(color='#9a845c', width=4)))
-                if 'Projeto 3' in colunas:
-                    pontos.append(cronograma['Projeto 3'])
-                    axis +=1
-                    yaxis.append(axis)
-                    try:
-                        cronograma["Fim Projeto 3"] = cronograma["Fim estimado do Projeto 3 (com atraso)"]
-                    except:
-                        cronograma["Fim Projeto 3"] = cronograma["Fim previsto do Projeto 3 (sem atraso)"]
-                    # Adicionando o Projeto 3
-                    fig.add_trace(go.Scatter(x=[cronograma["Início Real Projeto 3"].iloc[0], cronograma["Fim Projeto 3"].iloc[0]],
-                                            y=[axis, axis],
-                                            mode='lines',
-                                            name=cronograma['Projeto 3'].iloc[0],
-                                            line=dict(color='#847c64', width=4)))
+                # Dicionário de projetos e cores
+                projects = {
+                    'Projeto 1': {'start': "Início Real Projeto 1", 'end': "Fim Projeto 1", 'color': '#b4944c'},
+                    'Projeto 2': {'start': "Início Real Projeto 2", 'end': "Fim Projeto 2", 'color': '#9a845c'},
+                    'Projeto 3': {'start': "Início Real Projeto 3", 'end': "Fim Projeto 3", 'color': '#847c64'},
+                }
+
+                # Iterando sobre os projetos
+                for projeto, config in projects.items():
+                    if projeto in colunas:
+                        pontos.append(cronograma[projeto])
+                        axis += 1
+                        yaxis.append(axis)
+                        try:
+                            cronograma["Fim " + projeto.split(' ')[1]] = cronograma["Fim estimado do Projeto " + projeto.split(' ')[1] + " (com atraso)"]
+                        except:
+                            cronograma["Fim " + projeto.split(' ')[1]] = cronograma["Fim previsto do Projeto " + projeto.split(' ')[1] + " (sem atraso)"]
+                        add_gantt_trace(fig, config['start'], config['end'], cronograma[projeto].iloc[0], config['color'], axis)
+
                 if 'Assessoria/Liderança' in colunas:
                     pontos.append(cronograma['Assessoria/Liderança'])
                     axis +=1
@@ -302,30 +333,21 @@ if page == "Base Consolidada":
                                             mode='lines',
                                             name=cronograma['Assessoria/Liderança'].iloc[0],
                                             line=dict(color='#244c8c', width=4)))
-                if 'Projeto Interno 1' in colunas:
-                    if "Fim do Projeto Interno 1" in colunas:
-                        pontos.append(cronograma['Projeto Interno 1'])
-                        axis +=1
-                        yaxis.append(axis)
-                        # Adicionando o Projeto Interno 1
-                        fig.add_trace(go.Scatter(x=[cronograma["Início do Projeto Interno 1"].iloc[0], cronograma["Fim do Projeto Interno 1"].iloc[0]],
-                                                y=[axis, axis],
-                                                mode='lines',
-                                                name=cronograma['Projeto Interno 1'].iloc[0],
-                                                line=dict(color='#405094', width=4)))
-                    else: st.error(f'Não foi possível determinar o fim do projeto interno {cronograma['Projeto Interno 1'].iloc[0]}', icon="⚠")
-                if 'Projeto Interno 2' in colunas:
-                    if "Fim do Projeto Interno 2" in colunas:
-                        pontos.append(cronograma['Projeto Interno 2'])
-                        axis +=1
-                        yaxis.append(axis)
-                        # Adicionando o Projeto Interno 2
-                        fig.add_trace(go.Scatter(x=[cronograma["Início do Projeto Interno 2"].iloc[0], cronograma["Fim do Projeto Interno 2"].iloc[0]],
-                                                y=[axis, axis],
-                                                mode='lines',
-                                                name=cronograma['Projeto Interno 2'].iloc[0],
-                                                line=dict(color='#405094', width=4)))
-                    else: st.error(f'Não foi possível determinar o fim do projeto interno {cronograma['Projeto Interno 2'].iloc[0]}', icon="⚠")
+                
+                internal_projects = {
+                    'Projeto Interno 1': {'start': "Início do Projeto Interno 1", 'end': "Fim do Projeto Interno 1", 'color': '#405094'},
+                    'Projeto Interno 2': {'start': "Início do Projeto Interno 2", 'end': "Fim do Projeto Interno 2", 'color': '#405094'}
+                }
+
+                for projeto, config in internal_projects.items():
+                    if projeto in colunas:
+                        if config['end'] in colunas:
+                            pontos.append(cronograma[projeto])
+                            axis += 1
+                            yaxis.append(axis)
+                            add_gantt_trace(fig, config['start'], config['end'], cronograma[projeto].iloc[0], config['color'], axis)
+                        else:
+                            st.error(f'Não foi possível determinar o fim do projeto interno {cronograma[projeto].iloc[0]}', icon="⚠")
 
                 if 'N° Aprendizagens' in colunas:
                     # if cronograma['N° Aprendizagens'].iloc[0] != 0:
@@ -408,13 +430,68 @@ if page == "Base Consolidada":
                     )
 
 
-
-
-
-
-
-
 if page == 'PCP':
+    # Backend Functions
+    def calcular_disponibilidade(row, inicio_novo_projeto):
+        horas_disponiveis = 30  # Começamos com 30h disponíveis
+
+        # Subtrai horas conforme aprendizados e assessorias
+        horas_disponiveis -= row.get('N° Aprendizagens', 0) * 5
+        horas_disponiveis -= row.get('N° Assessoria', 0) * 10
+
+        # Subtrai horas conforme projetos ativos (cada projeto reduz 10h)
+        for i in range(1, 5):  # Projetos 1 a 4
+            if pd.notnull(row.get(f'Fim previsto do Projeto {i}', None)):
+                horas_disponiveis -= 10
+
+        # Subtrai horas conforme projetos internos ativos (cada um reduz 5h)
+        for i in range(1, 5):  # Projetos Internos 1 a 4
+            if pd.notnull(row.get(f'Início do Projeto Interno {i}', None)):
+                horas_disponiveis -= 5
+
+        # Ajusta conforme cargo no núcleo
+        cargo = str(row.get('Cargo no núcleo', '')).strip().upper()
+        if cargo in ['SDR', 'HUNTER']:
+            horas_disponiveis -= 10
+        elif cargo == 'ANALISTA SÊNIOR':
+            horas_disponiveis -= 5
+
+        # Ajusta conforme proximidade da data de fim de um projeto
+        for i in range(1, 5):  # Projetos 1 a 4
+            fim_estimado = row.get(f'Fim estimado do Projeto {i}', None)
+            fim_previsto = row.get(f'Fim previsto do Projeto {i}', None)
+
+            fim_projeto = fim_estimado if pd.notnull(fim_estimado) else fim_previsto
+
+            if pd.notnull(fim_projeto):
+                days_left = (fim_projeto - inicio_novo_projeto).days
+                if 7 < days_left <= 14:
+                    horas_disponiveis += 6
+                elif days_left <= 7:
+                    horas_disponiveis += 10
+
+        return horas_disponiveis
+
+    def calcular_afinidade(row):
+        # Satisfação esperada = Satisfação Média com o Portfólio * 2
+        satisfacao_portfolio = row.get('Satisfação Média com o Portfólio', 0) * 2
+
+        # Capacidade esperada = Validação média do Projeto * 2
+        capacidade = row.get('Validação média do Projeto', 0) * 2
+
+        # Saúde mental = Média entre percepção da carga e saúde mental na PJ
+        # NEUTRO É 5
+        sentimento_carga = row.get('Como se sente em relação à carga', '').strip().upper()
+        sentimento_map = {'SUBALOCADO': 10, 'ESTOU SATISFEITO': 5, 'SUPERALOCADO': 1}
+        sentimento_nota = sentimento_map.get(sentimento_carga, 5)  # Se não estiver mapeado, assume 5
+        saude_mental = row.get('Saúde mental na PJ', 5)
+
+        saude_final = (sentimento_nota + saude_mental) / 2
+
+        # Nota final de afinidade é a média dos três critérios
+        afinidade = (satisfacao_portfolio + capacidade + saude_final) / 3
+        return afinidade
+    
     match st.session_state.nucleo:
             case 'NCiv':
                 escopos = ['Arquitetônico', 'Design de Interiores', 'Elétrico/Fotovoltaico', 'Estrutural', 'Hidrossanitário', 'Real State', 'Não mapeado']
@@ -440,8 +517,37 @@ if page == 'PCP':
     with colfim:
         fim = st.date_input("*Fim*", min_value=inicio, max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=inicio, format="DD/MM/YYYY")
 
+    inicio_novo_projeto = pd.Timestamp(inicio)
 
+    # Get the dataframe
+    df = nucleo_func(st.session_state.nucleo)
 
+    # Lista de cargos a serem removidos
+    cargos_excluidos = ['Líder de Outbound', 'Coordenador de Negócios', 'Coordenador de Inovação Comercial', 'Gerente Comercial',
+                        'Coordenador de Projetos', 'Coordenador de Inovação de Projetos', 'Gerente de Projetos']
 
+    # Filtrando a tabela para remover os cargos indesejados
+    df = df[~df['Cargo no núcleo'].isin(cargos_excluidos)]
 
-#mudanças: adição da seleção de escopo (separada por nucleo), embelezamento das datas, alteração de Alocações pra multiselect, adição da seleção de datas, separação das páginas
+    # Converte datas para datetime
+    date_cols = [f'Fim previsto do Projeto {i}' for i in range(1, 5)] + \
+                [f'Fim estimado do Projeto {i}' for i in range(1, 5)] + \
+                [f'Fim do Projeto Interno {i}' for i in range(1, 5)]
+    for col in date_cols:
+        try:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+        except:
+            pass
+
+    # Calcula disponibilidade
+    df['Disponibilidade'] = df.apply(lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1)
+
+    # Calcula afinidade
+    df['Afinidade'] = df.apply(calcular_afinidade, axis=1)
+
+    # Ordena os membros pela Disponibilidade e Afinidade (ambas igualmente importantes)
+    df = df.sort_values(by=['Disponibilidade', 'Afinidade'], ascending=[False, False])
+
+    # Exibe as colunas principais
+    st.write("Membros sugeridos (ordenados pela pontuação):")
+    st.write(df[['Membro', 'Disponibilidade', 'Afinidade']])
