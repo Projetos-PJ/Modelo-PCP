@@ -4,58 +4,7 @@ import numpy as np
 from datetime import datetime
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Ambiente de Projetos", layout="wide")
-
-page = st.sidebar.selectbox(
-    "Escolha uma página",
-    ("Base Consolidada", "PCP")
-)
-
-# Definindo o estilo CSS para o div
-st.markdown(
-    """
-    <style>
-    * {
-        font-family: 'Poppins', sans-serif !important;
-    }
-
-    .st-emotion-cache-ttupiz {
-        position: fixed;
-        top: 0px;
-        left: 0px;
-        right: 0px;
-        height: 4.5rem;
-        background: #064381;
-        outline: none;
-        z-index: 999990;
-        display: block;
-    }
-    hr {
-        border: 0;
-        background-color: #064381;  /* Cor do tracinho */
-        height: 2px;  /* Definindo diretamente a altura */
-    }
-
-    hr:not([size]) {
-        height: 2px;  /* Garantindo que a altura será 2px para hr sem atributo size para manter a consistência */
-    }
-    .st-emotion-cache-10d29ip hr {
-        background-color: #064381;
-        border-bottom: 2px solid #064381;
-    }
-    </style>
-    <div class="fullscreen-div">
-    </div>
-    """, 
-    unsafe_allow_html=True
-)
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime
-
-st.set_page_config(page_title="Ambiente de Projetos", layout="wide")
+st.set_page_config(page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded")
 
 page = st.sidebar.selectbox(
     "Escolha uma página",
@@ -111,23 +60,27 @@ if page == "PCP":
 if 'pcp' not in st.session_state:
     try:
         with st.spinner('Carregando...'):
-            st.session_state.pcp = pd.read_excel(r"Ambiente-Modelo\Include\PCP Auto.xlsx", sheet_name=None)
+            uploaded_file = st.file_uploader("Upload the PCP Auto.xlsx file", type=["xlsx"])
+            if uploaded_file is not None:
+                st.session_state.pcp = pd.read_excel(uploaded_file, sheet_name=None)
+            else:
+                st.error("Please upload the PCP Auto.xlsx file to proceed.", icon="🚨")
+                st.stop()
     except FileNotFoundError:
         st.error("Arquivo PCP Auto.xlsx não encontrado. Verifique o caminho do arquivo.", icon="🚨")
         st.stop()
     except Exception as e:
         st.error(f"Erro ao carregar o arquivo: {e}", icon="🚨")
-        st.stop()
-    
-# Acesso aos dados armazenados
-pcp = st.session_state.pcp
+# Precompute a dictionary for faster lookups
+sheet_lookup = {sheet.replace(" ", "").lower(): data for sheet, data in pcp.items()}
 
 def nucleo_func(nucleo_digitado):
     nucleo_digitado = nucleo_digitado.replace(" ", "").lower()
+    if nucleo_digitado in sheet_lookup:
+        return sheet_lookup[nucleo_digitado]
     for pcp_sheet in pcp.keys():
         if nucleo_digitado == pcp_sheet.replace(" ", "").lower():
-            pcp_nucleo = pcp[pcp_sheet]
-            return pcp_nucleo
+            return pcp[pcp_sheet]
     return None
 # Inicializando session_state para manter os valores dos filtros
 if 'nucleo' not in st.session_state:
@@ -178,11 +131,14 @@ if page == "Base Consolidada":
 
             def convert_and_format_date(df, column):
                 try:
-                    df[column] = pd.to_datetime(df[column], format='%d/%m/%Y', errors='coerce').dt.strftime('%d/%m/%Y')
+                    converted_dates = pd.to_datetime(df[column], format='%d/%m/%Y', errors='coerce')
+                    invalid_dates = df[column][converted_dates.isna()]
+                    if not invalid_dates.empty:
+                        st.warning(f"Coluna '{column}' contém datas inválidas: {invalid_dates.tolist()}", icon="⚠️")
+                    df[column] = converted_dates.dt.strftime('%d/%m/%Y')
                 except Exception as e:
                     st.error(f"Erro ao converter a coluna '{column}': {e}", icon="🚨")
                 return df[column]
-
             for col in date_columns:
                 df[col] = convert_and_format_date(df, col)
             
@@ -213,27 +169,21 @@ if page == "Base Consolidada":
                 # Filtragem dos dados
                 if nome:
                     df = df[df['Membro'] == nome]
-                if cargo:
-                    df = df[df['Cargo no núcleo'] == cargo]
-
-                if aloc:
+                    
                     def count_alocations(row):
-                        alocacoes = 0
-                        if pd.notna(row['Projeto 1']): alocacoes += 1
-                        if pd.notna(row['Projeto 2']): alocacoes += 1
-                        if pd.notna(row['Projeto 3']): alocacoes += 1
-                        if pd.notna(row['Projeto Interno 1']): alocacoes += 1
-                        if pd.notna(row['Projeto Interno 2']): alocacoes += 1
-                        if pd.notna(row['Projeto Interno 3']): alocacoes += 1
-                        if pd.notna(row['Cargo WI']): alocacoes += 1
-                        if pd.notna(row['Cargo MKT']): alocacoes += 1
+                        relevant_columns = [
+                            'Projeto 1', 'Projeto 2', 'Projeto 3',
+                            'Projeto Interno 1', 'Projeto Interno 2', 'Projeto Interno 3',
+                            'Cargo WI', 'Cargo MKT', 'Assessoria/Liderança', 'Equipe de PS'
+                        ]
+                        alocacoes = row[relevant_columns].notna().sum()
                         try:
-                            if row['N° Aprendizagens'] != 0: alocacoes += row['N° Aprendizagens']
-                        except: pass
-                        if pd.notna(row['Assessoria/Liderança']): alocacoes += 1
-                        if pd.notna(row['Equipe de PS']): alocacoes += 1
-                        return min(alocacoes, 4)
-
+                            alocacoes += row.get('N° Aprendizagens', 0) if pd.notna(row.get('N° Aprendizagens', None)) else 0
+                            return min(alocacoes, 4)
+                        except Exception as e:
+                            st.warning(f"Erro ao calcular alocações: {e}", icon="⚠️")
+                            return 0
+                        
                     df['N° Alocações'] = df.apply(count_alocations, axis=1)
 
                     # Converter as opções selecionadas para inteiros correspondentes ao número de alocações
@@ -270,11 +220,14 @@ if page == "Base Consolidada":
                         st.error(f"Erro ao converter a coluna '{col}' para datetime: {e}", icon="🚨")
 
                 mes = datetime.today().month
-                if mes in [1, 2, 3]:
-                    cronograma["Inicio trimestre"] = datetime(datetime.today().year, 1, 1)
-                    cronograma["Fim trimestre"] = datetime(datetime.today().year, 3, 31)
-                elif mes in [4, 5, 6]:
-                    cronograma["Inicio trimestre"] = datetime(datetime.today().year, 4, 1)
+                for col in date_columns_gantt:
+                    try:
+                        invalid_dates = cronograma[col][~cronograma[col].str.match(r'\d{2}/\d{2}/\d{4}', na=False)]
+                        if not invalid_dates.empty:
+                            st.warning(f"Coluna '{col}' contém datas inválidas: {invalid_dates.tolist()}", icon="⚠️")
+                        cronograma[col] = pd.to_datetime(cronograma[col], format='%d/%m/%Y', errors='coerce')
+                    except Exception as e:
+                        st.error(f"Erro ao converter a coluna '{col}' para datetime: {e}", icon="🚨")
                     cronograma["Fim trimestre"] = datetime(datetime.today().year, 6, 30)
                 elif mes in [7, 8, 9]:
                     cronograma["Inicio trimestre"] = datetime(datetime.today().year, 7, 1)
@@ -319,8 +272,12 @@ if page == "Base Consolidada":
                         yaxis.append(axis)
                         try:
                             cronograma["Fim " + projeto.split(' ')[1]] = cronograma["Fim estimado do Projeto " + projeto.split(' ')[1] + " (com atraso)"]
-                        except:
-                            cronograma["Fim " + projeto.split(' ')[1]] = cronograma["Fim previsto do Projeto " + projeto.split(' ')[1] + " (sem atraso)"]
+                        except KeyError as e:
+                            st.warning(f"Coluna ausente para determinar o fim do projeto {projeto}: {e}", icon="⚠️")
+                            cronograma["Fim " + projeto.split(' ')[1]] = None
+                        except Exception as e:
+                            st.error(f"Erro inesperado ao determinar o fim do projeto {projeto}: {e}", icon="🚨")
+                            cronograma["Fim " + projeto.split(' ')[1]] = None
                         add_gantt_trace(fig, config['start'], config['end'], cronograma[projeto].iloc[0], config['color'], axis)
 
                 if 'Assessoria/Liderança' in colunas:
@@ -372,7 +329,7 @@ if page == "Base Consolidada":
                     showlegend=True
                 )
                 if axis != 0:
-                # Exibindo o gráfico no Streamlit
+                    # Exibindo o gráfico no Streamlit
                     st.plotly_chart(fig)
                 if 'Projeto 1' in colunas:
                     if 'Projeto 2' in colunas:
@@ -503,15 +460,16 @@ if page == 'PCP':
                 escopos = ['Inovacamp', 'VBaaS', 'Não mapeado']
             case 'NTec':
                 escopos = ['Delivery', 'Descoberta de Produto', 'Discovery', 'Escopo Aberto', 'Não mapeado']
+            case _:
+                escopos = ['Não mapeado']
 
-    colescopo, colinicio, colfim = st.columns(3)
-    with colescopo:
         escopo = st.selectbox(
-            "",
-            placeholder="Portfolio",
-            options=escopos,
             index=opcoes.index(st.session_state.escopo) if st.session_state.escopo else None  # Certifique-se que o índice inicial seja 0
         )
+    with colinicio:
+        inicio = st.date_input("*Início*", min_value=datetime(datetime.today().year - 1, 1, 1).date(), max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=datetime.today().date(), format="%d/%m/%Y")
+    with colfim:
+        fim = st.date_input("*Fim*", min_value=inicio, max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=inicio, format="%d/%m/%Y")
     with colinicio:
         inicio = st.date_input("*Início*", min_value=datetime(datetime.today().year - 1, 1, 1).date(), max_value=datetime(datetime.today().year + 1, 12, 31).date(), value=datetime.today().date(), format="DD/MM/YYYY")
     with colfim:
@@ -536,8 +494,9 @@ if page == 'PCP':
     for col in date_cols:
         try:
             df[col] = pd.to_datetime(df[col], errors='coerce')
-        except:
-            pass
+        except Exception as e:
+            import logging
+            logging.error(f"Error converting column '{col}' to datetime at row index {df.index[df[col].isna()].tolist()}: {e}")
 
     # Calcula disponibilidade
     df['Disponibilidade'] = df.apply(lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1)
@@ -550,4 +509,9 @@ if page == 'PCP':
 
     # Exibe as colunas principais
     st.write("Membros sugeridos (ordenados pela pontuação):")
+    st.markdown("""
+    - **Membro**: Nome do membro.
+    - **Disponibilidade**: Horas disponíveis para novos projetos.
+    - **Afinidade**: Pontuação calculada com base em satisfação, capacidade e saúde mental.
+    """)
     st.write(df[['Membro', 'Disponibilidade', 'Afinidade']])
