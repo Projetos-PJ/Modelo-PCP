@@ -75,16 +75,17 @@ if page == "PCP":
 # Improved data loading function
 @st.cache_data
 def load_pcp_data():
-    """
-    Load the PCP data from the Excel file and cache it to improve performance.
-    
-    Returns:
-        dict: Dictionary with sheet names as keys and DataFrames as values
-    """
     try:
         downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
         file_path = os.path.join(downloads_path, "PCP Auto.xlsx")
-        return pd.read_excel(file_path, sheet_name=None)
+        
+        # Specify which sheets to load and the number of rows
+        sheet_names = ['NDados', 'NTec', 'NCiv', 'NI', 'NCon']
+        
+        # Load all sheets
+        all_sheets = pd.read_excel(file_path, sheet_name=sheet_names)
+        return all_sheets
+    
     except FileNotFoundError:
         st.error("Arquivo PCP Auto.xlsx não encontrado na pasta de downloads. Verifique se o arquivo existe lá.", icon="🚨")
         st.stop()
@@ -475,7 +476,7 @@ if page == 'PCP':
 
         # Saúde mental = Média entre percepção da carga e saúde mental na PJ
         # NEUTRO É 5
-        sentimento_carga = analista.get('Como se sente em relação à carga', '').strip().upper()
+        sentimento_carga = str(analista.get('Como se sente em relação à carga', '')).strip().upper()
         sentimento_map = {'SUBALOCADO': 10, 'ESTOU SATISFEITO': 5, 'SUPERALOCADO': 1}
         sentimento_nota = sentimento_map.get(sentimento_carga, 5)  # Se não estiver mapeado, assume 5
         saude_mental = analista.get('Saúde mental na PJ', 5)
@@ -529,8 +530,8 @@ if page == 'PCP':
     with col_analista:
         analistas = sorted(pcp['Membro'].astype(str).unique().tolist())
         analista_selecionado = st.selectbox(
-            "Analista", 
-            options=analistas,
+            "Analista",
+            options=["Todos"] + analistas, 
             index=0
         )
     
@@ -563,7 +564,19 @@ if page == 'PCP':
                 [f'Fim do Projeto Interno {i}' for i in range(1, 5)]
     for col in date_cols:
         try:
+            # Tenta converter a coluna para datetime
+            original_values = pcp[col].copy()  # Copia os valores originais antes da conversão
             pcp[col] = pd.to_datetime(pcp[col], errors='coerce')
+            
+            # Identifica os valores que não puderam ser convertidos (NaN após a conversão)
+            failed_conversion = pcp[col].isnull() & original_values.notnull()
+            
+            # Loga apenas se a conversão falhou e o valor original não era NaN
+            if failed_conversion.any():
+                failed_values = original_values[failed_conversion]
+                for val in failed_values:
+                    logging.error(f"Failed to convert '{val}' from column '{col}' to datetime. Value causing error: {val}")
+
         except Exception as e:
             logging.error(f"Error converting column '{col}' to datetime: {e}")
 
