@@ -8,10 +8,10 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded")
 
-# Configure logging
+# Configurando o logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# List of positions to exclude
+# Lista de cargos a serem excluídos
 cargos_excluidos = [
     'Líder de Outbound', 
     'Coordenador de Negócios', 
@@ -72,18 +72,18 @@ if page == "Base Consolidada":
 if page == "PCP":
     st.title("PCP")
 
-# Improved data loading function
-@st.cache_data
+# Função aprimorada para carregar dados
+@st.cache
 def load_pcp_data():
     try:
         downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
         file_path = os.path.join(downloads_path, "PCP Auto.xlsx")
         
-        # Specify which sheets to load and the number of rows
+        # Especifica quais abas carregar e o número de linhas
         sheet_names = ['NDados', 'NTec', 'NCiv', 'NI', 'NCon']
         
-        # Load all sheets
-        all_sheets = pd.read_excel(file_path, sheet_name=sheet_names)
+        # Carrega todas as abas
+        all_sheets = pd.read_excel(file_path, sheet_name=sheet_names, engine='openpyxl')
         return all_sheets
     
     except FileNotFoundError:
@@ -97,42 +97,42 @@ def load_pcp_data():
 if 'pcp' not in st.session_state:
     with st.spinner('Carregando dados...'):
         st.session_state.pcp = load_pcp_data()
-        # Precompute lookup dictionary for faster sheet access
+        # Pré-computa o dicionário de busca para acesso mais rápido às abas
         st.session_state.sheet_lookup = {
             sheet.replace(" ", "").lower(): sheet 
             for sheet in st.session_state.pcp.keys()
         }
 
-# Function to get and filter data from a specific nucleus
+# Função para obter e filtrar dados de um núcleo específico
 def nucleo_func(nucleo_digitado):
     """
-    Retrieve and filter data for the specified nucleus.
+    Recupera e filtra dados para o núcleo especificado.
     
     Args:
-        nucleo_digitado (str): Name of the nucleus to retrieve
+        nucleo_digitado (str): Nome do núcleo a ser recuperado
         
     Returns:
-        pd.DataFrame: Filtered DataFrame for the specified nucleus
+        pd.DataFrame: DataFrame filtrado para o núcleo especificado
     """
-    # Normalize input
+    # Normaliza a entrada
     nucleo_digitado = nucleo_digitado.replace(" ", "").lower()
     
-    # Get original sheet name if it exists
+    # Obtém o nome original da aba, se existir
     sheet_name = st.session_state.sheet_lookup.get(nucleo_digitado)
     
     if not sheet_name:
         return None
     
-    # Get the DataFrame
+    # Obtém o DataFrame
     df = st.session_state.pcp[sheet_name].copy()
     
-    # Filter out excluded positions
+    # Filtra os cargos excluídos
     try:
         if 'Cargo no núcleo' in df.columns:
             return df[~df['Cargo no núcleo'].isin(cargos_excluidos)]
         return df
     except Exception as e:
-        logging.error(f"Error filtering positions for nucleus {nucleo_digitado}: {e}")
+        logging.error(f"Erro ao filtrar cargos para o núcleo {nucleo_digitado}: {e}")
         return df
 
 # Inicializando session_state para manter os valores dos filtros
@@ -184,6 +184,9 @@ if page == "Base Consolidada":
             ]
 
             def convert_and_format_date(pcp, column):
+                if column not in pcp.columns:
+                    logging.warning(f"Coluna '{column}' não encontrada no DataFrame.")
+                    return None
                 try:
                     converted_dates = pd.to_datetime(pcp[column], format='%d/%m/%Y', errors='coerce')
                     pcp[column] = converted_dates.dt.strftime('%d/%m/%Y')
@@ -208,15 +211,13 @@ if page == "Base Consolidada":
                 if st.session_state.aloc and st.session_state.aloc in opcoes:
                     default_index = [opcoes.index(st.session_state.aloc)]  # Se o valor de aloc está presente, use o índice
                 else:
-                    default_index = []  # Se não, inicie com uma lista vazia
-                
-                # O multiselect pode retornar uma lista de opções selecionadas
-                aloc = st.multiselect(
-                    "",
-                    placeholder="Alocações",
-                    options=opcoes,
-                    default=default_index  # Usando o valor de default_index como uma lista de índices
-                )
+                    default_index = []
+                    aloc = st.multiselect(
+                        "",
+                        placeholder="Alocações",
+                        options=opcoes,
+                        default=[opcoes[i] for i in default_index]  # Convertendo índices para opções correspondentes
+                    )
                 # Filtragem dos dados
                 if nome:
                     pcp = pcp[pcp['Membro'] == nome]
@@ -284,7 +285,7 @@ if page == "Base Consolidada":
                 yaxis = []
                 axis = 0
 
-                # Function to add traces to the Gantt chart
+                # Função para adicionar traces ao gráfico de Gantt
                 def add_gantt_trace(fig, start_col, end_col, name, color, axis):
                     fig.add_trace(go.Scatter(
                         x=[cronograma[start_col].iloc[0], cronograma[end_col].iloc[0]],
@@ -427,7 +428,7 @@ if page == "Base Consolidada":
                     )
 
 if page == 'PCP':
-    # Backend Functions
+    # Funções de Backend
     def calcular_disponibilidade(analista, inicio_novo_projeto):
         horas_disponiveis = 30  # Começamos com 30h disponíveis
 
@@ -487,22 +488,22 @@ if page == 'PCP':
         afinidade = (satisfacao_portfolio + capacidade + saude_final) / 3
         return afinidade
     
-    # Check if a nucleus is selected
+    # Verifica se um núcleo foi selecionado
     if not st.session_state.nucleo:
         st.warning("Por favor, selecione um núcleo primeiro.", icon="⚠️")
         st.stop()
     
-    # Get the dataframe for the selected nucleus
+    # Obtém o dataframe para o núcleo selecionado
     pcp = nucleo_func(st.session_state.nucleo)
     
     if pcp is None:
         st.warning(f"Nenhum dado encontrado para o núcleo: {st.session_state.nucleo}", icon="⚠️")
         st.stop()
         
-    # Replace '-' with NaN
+    # Substitui '-' por NaN
     pcp.replace('-', np.nan, inplace=True)
     
-    # Define portfolios based on selected nucleus
+    # Define os portfólios com base no núcleo selecionado
     match st.session_state.nucleo:
         case 'NCiv':
             escopos = ['Arquitetônico', 'Design de Interiores', 'Elétrico/Fotovoltaico', 'Estrutural', 'Hidrossanitário', 'Real State', 'Não mapeado']
@@ -517,7 +518,7 @@ if page == 'PCP':
         case _:
             escopos = ['Não mapeado']
 
-    # Create a 3-column layout for filters
+    # Cria um layout de 3 colunas para os filtros
     col_escopo, col_analista, col_data = st.columns(3)
     
     with col_escopo:
@@ -544,18 +545,18 @@ if page == 'PCP':
             format="DD/MM/YYYY"
         )
     
-    # Second row for end date
+    # Segunda linha para a data de fim
     col_empty1, col_empty2, col_fim = st.columns(3)
     with col_fim:
         fim = st.date_input(
             "Data de Fim do Projeto", 
             min_value=inicio, 
             max_value=datetime(datetime.today().year + 1, 12, 31).date(), 
-            value=inicio + pd.Timedelta(days=56),  # Default to 8 semanas after start 
+            value=inicio + pd.Timedelta(days=56),  # Padrão para 8 semanas após o início
             format="DD/MM/YYYY"
         )
     
-    # Convert to timestamp for calculations
+    # Converte para timestamp para cálculos
     inicio_novo_projeto = pd.Timestamp(inicio)
 
     # Converte datas para datetime
@@ -575,12 +576,12 @@ if page == 'PCP':
             if failed_conversion.any():
                 failed_values = original_values[failed_conversion]
                 for val in failed_values:
-                    logging.error(f"Failed to convert '{val}' from column '{col}' to datetime. Value causing error: {val}")
+                    logging.error(f"Falha ao converter '{val}' da coluna '{col}' para datetime. Valor que causou o erro: {val}")
 
         except Exception as e:
-            logging.error(f"Error converting column '{col}' to datetime: {e}")
+            logging.error(f"Erro ao converter a coluna '{col}' para datetime: {e}")
 
-    # Filter by analyst if one is selected
+    # Filtra por analista se um for selecionado
     if analista_selecionado != "Todos":
         pcp = pcp[pcp['Membro'] == analista_selecionado]
         
@@ -588,28 +589,48 @@ if page == 'PCP':
         st.warning("Nenhum analista encontrado com os filtros selecionados.", icon="⚠️")
         st.stop()
 
-    # Calculate all metrics at once
+    # Calcula todas as métricas de uma vez
     pcp['Disponibilidade'] = pcp.apply(lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1)
     
-    # Calculate Nota Disponibilidade
+    # Calcula Nota Disponibilidade
     max_disponibilidade = 30
     min_disponibilidade = pcp['Disponibilidade'].min()
+    range_disponibilidade = max_disponibilidade - min_disponibilidade
     
-    if max_disponibilidade != min_disponibilidade:
-        pcp['Nota Disponibilidade'] = 10 * (pcp['Disponibilidade'] - min_disponibilidade) / (max_disponibilidade - min_disponibilidade)
+    if range_disponibilidade != 0:
+        scaling_factor = 10 / range_disponibilidade
+        pcp['Nota Disponibilidade'] = (pcp['Disponibilidade'] - min_disponibilidade) * scaling_factor
     else:
         pcp['Nota Disponibilidade'] = 10
     
-    # Calculate Afinidade
+    # Calcula Afinidade
+    # Calcula Nota Final como média ponderada
+    # Inputs para pesos
+    afinidade_weight = st.number_input("Peso da Afinidade (0.0 - 1.0)", min_value=0.3, max_value=0.7, value=0.5, step=0.1)
+    disponibilidade_weight = st.number_input("Peso da Disponibilidade (0.0 - 1.0)", min_value=0.3, max_value=0.7, value=0.5, step=0.1)
+    
+    # Garante que os pesos somem 1
+    if afinidade_weight + disponibilidade_weight != 1.0:
+        st.warning("A soma dos pesos deve ser igual a 1. Ajustando os valores.")
+        
+        # Ajusta os pesos para que somem 1
+        afinidade_weight = round(afinidade_weight, 1)
+        disponibilidade_weight = round(1 - afinidade_weight, 1)
+        
+        st.write(f"Peso da Afinidade ajustado para: {afinidade_weight}")
+        st.write(f"Peso da Disponibilidade ajustado para: {disponibilidade_weight}")
+    
     pcp['Afinidade'] = pcp.apply(calcular_afinidade, axis=1)
     
-    # Calculate Nota Final directly
+    # Calcula Nota Final diretamente
+    pcp['Nota Final'] = (pcp['Afinidade'] * afinidade_weight + pcp['Nota Disponibilidade'] * disponibilidade_weight)
+    # Calcula Nota Final diretamente
     pcp['Nota Final'] = (pcp['Afinidade'] + pcp['Nota Disponibilidade']) / 2
     
-    # Sort by the final score
+    # Ordena pela nota final
     pcp = pcp.sort_values(by='Nota Final', ascending=False)
 
-    # Create a divider
+    # Cria um divisor
     st.markdown("---")
     
     # Exibe as colunas principais
@@ -628,14 +649,18 @@ if page == 'PCP':
     </ul>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Format the columns for better display
-    display_df = pcp[['Membro', 'Disponibilidade', 'Afinidade', 'Nota Final']].copy()
-    
-    # Format numeric columns to 1 decimal place
-    display_df['Disponibilidade'] = display_df['Disponibilidade'].apply(lambda x: f"{x:.1f}h")
+    # Função para formatar o DataFrame para exibição
+    def format_display_df(df):
+        formatted_df = df[['Membro', 'Disponibilidade', 'Afinidade', 'Nota Final']].copy()
+        formatted_df['Disponibilidade'] = formatted_df['Disponibilidade'].apply(lambda x: f"{x:.1f}h")
+        formatted_df['Afinidade'] = formatted_df['Afinidade'].apply(lambda x: f"{x:.1f}/10")
+        formatted_df['Nota Final'] = formatted_df['Nota Final'].apply(lambda x: f"{x:.1f}/10")
+        return formatted_df
+
+    # Formata as colunas para melhor exibição
+    display_df = format_display_df(pcp)
     display_df['Afinidade'] = display_df['Afinidade'].apply(lambda x: f"{x:.1f}/10")
-    display_df['Nota Final'] = display_df['Nota Final'].apply(lambda x: f"{x:.1f}/10") 
-    
-    # Display the table
+    display_df['Nota Final'] = display_df['Nota Final'].apply(lambda x: f"{x:.1f}/10")
+
+    # Exibe a tabela
     st.table(display_df)
