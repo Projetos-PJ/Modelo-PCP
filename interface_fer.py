@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import os
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
@@ -59,7 +60,9 @@ if page == "PCP":
 # Carregando os dados
 if 'pcp' not in st.session_state:
     with st.spinner('Carregando...'):
-        st.session_state.pcp = pd.read_excel(r"Ambiente-Modelo\Include\PCP Auto.xlsx", sheet_name=None)
+        downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        file_path = os.path.join(downloads_path, "PCP Auto.xlsx")  # Caminho para o arquivo na pasta de downloads
+        st.session_state.pcp = pd.read_excel(file_path, sheet_name=None)
     
 # Acesso aos dados armazenados
 pcp = st.session_state.pcp
