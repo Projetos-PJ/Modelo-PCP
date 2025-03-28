@@ -73,17 +73,62 @@ if page == "PCP":
     st.title("PCP")
 
 # Função aprimorada para carregar dados
-@st.cache
+@st.cache_data
 def load_pcp_data():
+    try:
+        return new_func()
+    
+    except FileNotFoundError:
+        st.error("Arquivo PCP Auto.xlsx não encontrado na pasta de downloads. Verifique se o arquivo existe lá.", icon="🚨")
+        st.stop()
+    except Exception as e:
+        st.error(f"Erro ao carregar o arquivo: {e}", icon="🚨")
+        st.stop()
+
+def new_func():
     try:
         downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
         file_path = os.path.join(downloads_path, "PCP Auto.xlsx")
         
-        # Especifica quais abas carregar e o número de linhas
+        # Especifica quais abas carregar
         sheet_names = ['NDados', 'NTec', 'NCiv', 'NI', 'NCon']
         
-        # Carrega todas as abas
-        all_sheets = pd.read_excel(file_path, sheet_name=sheet_names, engine='openpyxl')
+        # Carrega todas as abas especificadas
+        all_sheets = {}
+        
+        # Define os tipos de colunas para otimizar a memória
+        dtype_dict = {
+            'Membro': 'category',
+            'Cargo no núcleo': 'category',
+            'Área de atuação': 'category',
+            'Como se sente em relação à carga': 'category'
+        }
+        
+        # Colunas de data que serão convertidas ao carregar
+        date_columns = [
+            'Início previsto Projeto 1', 'Início previsto Projeto 2',
+            'Início Real Projeto 1', 'Início Real Projeto 2',
+            'Fim previsto do Projeto 1 (sem atraso)', 'Fim previsto do Projeto 2 (sem atraso)',
+            'Fim estimado do Projeto 1 (com atraso)', 'Fim estimado do Projeto 2 (com atraso)'
+        ]
+        parse_dates = date_columns
+        
+        # Carrega cada aba e pré-processa
+        for sheet in sheet_names:
+            # Carrega a aba
+            pcp_df = pd.read_excel(file_path, sheet_name=sheet, engine='openpyxl', 
+                              dtype=dtype_dict, parse_dates=parse_dates)
+            
+            # Substitui '-' por NaN
+            pcp_df.replace('-', np.nan, inplace=True)
+            
+            # Remove cargos excluídos
+            if 'Cargo no núcleo' in pcp_df.columns:
+                pcp_df = pcp_df[~pcp_df['Cargo no núcleo'].isin(cargos_excluidos)]
+            
+            # Armazena no dicionário
+            all_sheets[sheet] = pcp_df
+        
         return all_sheets
     
     except FileNotFoundError:
@@ -93,47 +138,32 @@ def load_pcp_data():
         st.error(f"Erro ao carregar o arquivo: {e}", icon="🚨")
         st.stop()
 
-# Carregando os dados
-if 'pcp' not in st.session_state:
-    with st.spinner('Carregando dados...'):
-        st.session_state.pcp = load_pcp_data()
-        # Pré-computa o dicionário de busca para acesso mais rápido às abas
-        st.session_state.sheet_lookup = {
-            sheet.replace(" ", "").lower(): sheet 
-            for sheet in st.session_state.pcp.keys()
-        }
-
 # Função para obter e filtrar dados de um núcleo específico
 def nucleo_func(nucleo_digitado):
-    """
-    Recupera e filtra dados para o núcleo especificado.
-    
-    Args:
-        nucleo_digitado (str): Nome do núcleo a ser recuperado
-        
-    Returns:
-        pd.DataFrame: DataFrame filtrado para o núcleo especificado
-    """
     # Normaliza a entrada
     nucleo_digitado = nucleo_digitado.replace(" ", "").lower()
     
-    # Obtém o nome original da aba, se existir
-    sheet_name = st.session_state.sheet_lookup.get(nucleo_digitado)
+    # Mapeamento de nomes normalizados para nomes de abas
+    nucleos_map = {
+        'nciv': 'NCiv',
+        'ncon': 'NCon',
+        'ndados': 'NDados',
+        'ni': 'NI',
+        'ntec': 'NTec'
+    }
     
-    if not sheet_name:
+    # Check if PCP data is loaded in session_state
+    if 'pcp' not in st.session_state:
+        st.session_state.pcp = load_pcp_data()
+    
+    # Obtém o nome da aba usando o mapeamento
+    sheet_name = nucleos_map.get(nucleo_digitado)
+    
+    if not sheet_name or sheet_name not in st.session_state.pcp:
         return None
     
-    # Obtém o DataFrame
-    df = st.session_state.pcp[sheet_name].copy()
-    
-    # Filtra os cargos excluídos
-    try:
-        if 'Cargo no núcleo' in df.columns:
-            return df[~df['Cargo no núcleo'].isin(cargos_excluidos)]
-        return df
-    except Exception as e:
-        logging.error(f"Erro ao filtrar cargos para o núcleo {nucleo_digitado}: {e}")
-        return df
+    # Retorna uma cópia do DataFrame já pré-processado
+    return st.session_state.pcp[sheet_name].copy()
 
 # Inicializando session_state para manter os valores dos filtros
 if 'nucleo' not in st.session_state:
@@ -165,16 +195,27 @@ with coltec:
     if st.button("NTec"):
         st.session_state.nucleo = 'NTec'
 
+# Função para converter colunas de data
+def converte_data(df, date_columns):
+    df_copy = df.copy()
+    for col in date_columns:
+        if col in df_copy.columns:
+            try:
+                df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce')
+            except Exception as e:
+                logging.error(f"Erro ao converter coluna '{col}': {e}")
+    return df_copy
+
 if page == "Base Consolidada":
     # Carregar o núcleo selecionado
     with st.spinner('Carregando...'):
         if st.session_state.nucleo != None:
-            pcp = nucleo_func(st.session_state.nucleo)
-            if pcp is None:
+            pcp_df = nucleo_func(st.session_state.nucleo)
+            if pcp_df is None:
                 st.warning(f"Nenhum dado encontrado para o núcleo: {st.session_state.nucleo}", icon="⚠️")
                 st.stop()
-            pcp.replace('-', np.nan, inplace=True)
-            cronograma = pcp
+            pcp_df.replace('-', np.nan, inplace=True)
+            cronograma = pcp_df
 
             date_columns = [
                 'Início previsto Projeto 1', 'Início previsto Projeto 2',
@@ -182,19 +223,6 @@ if page == "Base Consolidada":
                 'Fim previsto do Projeto 1 (sem atraso)', 'Fim previsto do Projeto 2 (sem atraso)',
                 'Fim estimado do Projeto 1 (com atraso)', 'Fim estimado do Projeto 2 (com atraso)'
             ]
-
-            def convert_and_format_date(pcp, column):
-                if column not in pcp.columns:
-                    logging.warning(f"Coluna '{column}' não encontrada no DataFrame.")
-                    return None
-                try:
-                    converted_dates = pd.to_datetime(pcp[column], format='%d/%m/%Y', errors='coerce')
-                    pcp[column] = converted_dates.dt.strftime('%d/%m/%Y')
-                except Exception as e:
-                    st.error(f"Erro ao converter a coluna '{column}': {e}", icon="🚨")
-                return pcp[column]
-            for col in date_columns:
-                pcp[col] = convert_and_format_date(pcp, col)
             
             # Filtros
             colcargo, colnome, colaloc = st.columns(3)
@@ -220,7 +248,7 @@ if page == "Base Consolidada":
                     )
                 # Filtragem dos dados
                 if nome:
-                    pcp = pcp[pcp['Membro'] == nome]
+                    pcp_df = pcp_df[pcp_df['Membro'] == nome]
                     
                     def count_alocations(analista):
                         relevant_columns = [
@@ -236,21 +264,21 @@ if page == "Base Consolidada":
                             st.warning(f"Erro ao calcular alocações: {e}", icon="⚠️")
                             return 0
                         
-                    pcp['N° Alocações'] = pcp.apply(count_alocations, axis=1)
+                    pcp_df['N° Alocações'] = pcp_df.apply(count_alocations, axis=1)
 
                     # Converter as opções selecionadas para inteiros correspondentes ao número de alocações
                     aloc_indices = [opcoes.index(opt) for opt in aloc]
 
                     # Filtrar o DataFrame com base nos índices de alocação selecionados
-                    pcp = pcp[pcp['N° Alocações'].isin(aloc_indices)]
+                    pcp_df = pcp_df[pcp_df['N° Alocações'].isin(aloc_indices)]
 
-                    pcp = pcp.drop('N° Alocações', axis=1, errors='ignore')
+                    pcp_df = pcp_df.drop('N° Alocações', axis=1, errors='ignore')
 
-            if pcp.empty:
+            if pcp_df.empty:
                 st.write("Sem informações para os dados filtrados")
             else:
-                pcp = pcp.dropna(axis=1, how='all')
-                pcp
+                pcp_df = pcp_df.dropna(axis=1, how='all')
+                pcp_df
 
             if nome and nome in cronograma['Membro'].values:
                 st.write('---')
@@ -494,14 +522,14 @@ if page == 'PCP':
         st.stop()
     
     # Obtém o dataframe para o núcleo selecionado
-    pcp = nucleo_func(st.session_state.nucleo)
+    pcp_df = nucleo_func(st.session_state.nucleo)
     
-    if pcp is None:
+    if pcp_df is None:
         st.warning(f"Nenhum dado encontrado para o núcleo: {st.session_state.nucleo}", icon="⚠️")
         st.stop()
         
     # Substitui '-' por NaN
-    pcp.replace('-', np.nan, inplace=True)
+    pcp_df.replace('-', np.nan, inplace=True)
     
     # Define os portfólios com base no núcleo selecionado
     match st.session_state.nucleo:
@@ -529,7 +557,7 @@ if page == 'PCP':
         )
         
     with col_analista:
-        analistas = sorted(pcp['Membro'].astype(str).unique().tolist())
+        analistas = sorted(pcp_df['Membro'].astype(str).unique().tolist())
         analista_selecionado = st.selectbox(
             "Analista",
             options=["Todos"] + analistas, 
@@ -558,50 +586,35 @@ if page == 'PCP':
     
     # Converte para timestamp para cálculos
     inicio_novo_projeto = pd.Timestamp(inicio)
-
+    
     # Converte datas para datetime
     date_cols = [f'Fim previsto do Projeto {i}' for i in range(1, 5)] + \
                 [f'Fim estimado do Projeto {i}' for i in range(1, 5)] + \
                 [f'Fim do Projeto Interno {i}' for i in range(1, 5)]
-    for col in date_cols:
-        try:
-            # Tenta converter a coluna para datetime
-            original_values = pcp[col].copy()  # Copia os valores originais antes da conversão
-            pcp[col] = pd.to_datetime(pcp[col], errors='coerce')
-            
-            # Identifica os valores que não puderam ser convertidos (NaN após a conversão)
-            failed_conversion = pcp[col].isnull() & original_values.notnull()
-            
-            # Loga apenas se a conversão falhou e o valor original não era NaN
-            if failed_conversion.any():
-                failed_values = original_values[failed_conversion]
-                for val in failed_values:
-                    logging.error(f"Falha ao converter '{val}' da coluna '{col}' para datetime. Valor que causou o erro: {val}")
 
-        except Exception as e:
-            logging.error(f"Erro ao converter a coluna '{col}' para datetime: {e}")
+    pcp_df = converte_data(pcp_df, date_cols)
 
     # Filtra por analista se um for selecionado
     if analista_selecionado != "Todos":
-        pcp = pcp[pcp['Membro'] == analista_selecionado]
+        pcp_df = pcp_df[pcp_df['Membro'] == analista_selecionado]
         
-    if len(pcp) == 0:
+    if len(pcp_df) == 0:
         st.warning("Nenhum analista encontrado com os filtros selecionados.", icon="⚠️")
         st.stop()
 
     # Calcula todas as métricas de uma vez
-    pcp['Disponibilidade'] = pcp.apply(lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1)
+    pcp_df['Disponibilidade'] = pcp_df.apply(lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1)
     
     # Calcula Nota Disponibilidade
     max_disponibilidade = 30
-    min_disponibilidade = pcp['Disponibilidade'].min()
+    min_disponibilidade = pcp_df['Disponibilidade'].min()
     range_disponibilidade = max_disponibilidade - min_disponibilidade
     
     if range_disponibilidade != 0:
         scaling_factor = 10 / range_disponibilidade
-        pcp['Nota Disponibilidade'] = (pcp['Disponibilidade'] - min_disponibilidade) * scaling_factor
+        pcp_df['Nota Disponibilidade'] = (pcp_df['Disponibilidade'] - min_disponibilidade) * scaling_factor
     else:
-        pcp['Nota Disponibilidade'] = 10
+        pcp_df['Nota Disponibilidade'] = 10
     
     # Calcula Afinidade
     # Calcula Nota Final como média ponderada
@@ -620,15 +633,15 @@ if page == 'PCP':
         st.write(f"Peso da Afinidade ajustado para: {afinidade_weight}")
         st.write(f"Peso da Disponibilidade ajustado para: {disponibilidade_weight}")
     
-    pcp['Afinidade'] = pcp.apply(calcular_afinidade, axis=1)
+    pcp_df['Afinidade'] = pcp_df.apply(calcular_afinidade, axis=1)
     
     # Calcula Nota Final diretamente
-    pcp['Nota Final'] = (pcp['Afinidade'] * afinidade_weight + pcp['Nota Disponibilidade'] * disponibilidade_weight)
+    pcp_df['Nota Final'] = (pcp_df['Afinidade'] * afinidade_weight + pcp_df['Nota Disponibilidade'] * disponibilidade_weight)
     # Calcula Nota Final diretamente
-    pcp['Nota Final'] = (pcp['Afinidade'] + pcp['Nota Disponibilidade']) / 2
+    pcp_df['Nota Final'] = (pcp_df['Afinidade'] + pcp_df['Nota Disponibilidade']) / 2
     
     # Ordena pela nota final
-    pcp = pcp.sort_values(by='Nota Final', ascending=False)
+    pcp_df = pcp_df.sort_values(by='Nota Final', ascending=False)
 
     # Cria um divisor
     st.markdown("---")
@@ -650,17 +663,15 @@ if page == 'PCP':
     </div>
     """, unsafe_allow_html=True)
     # Função para formatar o DataFrame para exibição
-    def format_display_df(df):
-        formatted_df = df[['Membro', 'Disponibilidade', 'Afinidade', 'Nota Final']].copy()
+    def format_display_df(pcp_df):
+        formatted_df = pcp_df[['Membro', 'Disponibilidade', 'Afinidade', 'Nota Final']].copy()
         formatted_df['Disponibilidade'] = formatted_df['Disponibilidade'].apply(lambda x: f"{x:.1f}h")
         formatted_df['Afinidade'] = formatted_df['Afinidade'].apply(lambda x: f"{x:.1f}/10")
         formatted_df['Nota Final'] = formatted_df['Nota Final'].apply(lambda x: f"{x:.1f}/10")
         return formatted_df
 
     # Formata as colunas para melhor exibição
-    display_df = format_display_df(pcp)
-    display_df['Afinidade'] = display_df['Afinidade'].apply(lambda x: f"{x:.1f}/10")
-    display_df['Nota Final'] = display_df['Nota Final'].apply(lambda x: f"{x:.1f}/10")
+    display_df = format_display_df(pcp_df)
 
     # Exibe a tabela
     st.table(display_df)
