@@ -330,9 +330,14 @@ if page == "Base Consolidada":
                         axis += 1
                         yaxis.append(axis)
                         try:
-                            cronograma["Fim " + projeto.split(' ')[1]] = cronograma["Fim estimado do Projeto " + projeto.split(' ')[1] + " (com atraso)"]
+                            # Tenta pegar primeiro o fim estimado, se não tiver pega o fim previsto
+                            try:
+                                cronograma["Fim " + projeto.split(' ')[1]] = cronograma["Fim estimado do Projeto " + projeto.split(' ')[1] + " (com atraso)"]
+                            except:
+                                cronograma["Fim " + projeto.split(' ')[1]] = cronograma["Fim previsto do Projeto " + projeto.split(' ')[1] + " (sem atraso)"]
+                                
                         except KeyError as e:
-                            st.warning(f"Coluna ausente para determinar o fim do projeto {projeto}: {e}", icon="⚠️")
+                            st.warning(f"Não foi possível determinar o fim do projeto {projeto}: {e}", icon="⚠️")
                             cronograma["Fim " + projeto.split(' ')[1]] = None
                         except Exception as e:
                             st.error(f"Erro inesperado ao determinar o fim do projeto {projeto}: {e}", icon="🚨")
