@@ -477,9 +477,18 @@ if page == 'PCP':
         # Ajusta conforme cargo no núcleo
         cargo = str(analista.get('Cargo no núcleo', '')).strip().upper()
         if cargo in ['SDR', 'HUNTER']:
-            horas_disponiveis -= 10
+            # Verifica se o membro já teve projetos
+            teve_projetos = False
+            for i in range(1, 5):  # Projetos 1 a 4
+                if pd.notnull(analista.get(f'Projeto {i}', None)):
+                    teve_projetos = True
+                    break
+            
+            # Só aplica a redução se já teve projetos
+            if teve_projetos:
+                horas_disponiveis -= 10
         elif cargo == 'ANALISTA SÊNIOR':
-            horas_disponiveis -= 5
+            horas_disponiveis -= 10
 
         # Ajusta conforme proximidade da data de fim de um projeto
         for i in range(1, 5):  # Projetos 1 a 4
@@ -496,10 +505,47 @@ if page == 'PCP':
                     horas_disponiveis += 10
         return horas_disponiveis
 
-    def calcular_afinidade(analista):
-        # Satisfação esperada = Satisfação Média com o Portfólio * 2
-        satisfacao_portfolio = analista.get('Satisfação Média com o Portfólio', 0) * 2
-
+    def calcular_afinidade(analista, escopo_selecionado):
+        # Calcula a satisfação média com o portfólio específico selecionado
+        satisfacao_media = 0
+        count = 0
+        
+        # Procura pelos projetos que têm o escopo selecionado
+        for i in range(1, 4):  # Projetos 1 a 3
+            portfolio_col = f'Portfólio do Projeto {i}'
+            satisfacao_col = f'Satisfação com o Projeto {i}'
+            
+            if portfolio_col in analista and satisfacao_col in analista:
+                if pd.notna(analista[portfolio_col]) and pd.notna(analista[satisfacao_col]):
+                    if str(analista[portfolio_col]).strip() == escopo_selecionado:
+                        # Converte string de satisfação para valor numérico
+                        satisfacao_str = str(analista[satisfacao_col]).strip().upper()
+                        if satisfacao_str == 'MUITO SATISFEITO':
+                            satisfacao_valor = 10
+                        elif satisfacao_str == 'SATISFEITO':
+                            satisfacao_valor = 7.5
+                        elif satisfacao_str == 'NEUTRO':
+                            satisfacao_valor = 5
+                        elif satisfacao_str == 'INSATISFEITO':
+                            satisfacao_valor = 2.5
+                        elif satisfacao_str == 'MUITO INSATISFEITO':
+                            satisfacao_valor = 0
+                        else:
+                            # Tenta converter para float se for um número
+                            try:
+                                satisfacao_valor = float(satisfacao_str)
+                            except:
+                                satisfacao_valor = 5  # Valor neutro padrão
+                        
+                        satisfacao_media += satisfacao_valor
+                        count += 1
+        
+        # Se não houver projetos no portfólio específico, use a média geral
+        if count == 0:
+            satisfacao_portfolio = analista.get('Satisfação Média com o Portfólio', 5) * 2
+        else:
+            satisfacao_portfolio = (satisfacao_media / count) * 2
+        
         # Capacidade esperada = Validação média do Projeto * 2
         capacidade = analista.get('Validação média do Projeto', 0) * 2
 
@@ -546,6 +592,44 @@ if page == 'PCP':
         case _:
             escopos = ['Não mapeado']
 
+    # Inicializa session_state para os campos de filtro
+    if 'escopo_selecionado' not in st.session_state:
+        st.session_state.escopo_selecionado = escopos[0]
+    if 'analista_selecionado' not in st.session_state:
+        st.session_state.analista_selecionado = "Todos"
+    if 'inicio_projeto' not in st.session_state:
+        st.session_state.inicio_projeto = datetime.today().date()
+    if 'fim_projeto' not in st.session_state:
+        st.session_state.fim_projeto = (datetime.today() + pd.Timedelta(days=56)).date()
+    if 'afinidade_weight' not in st.session_state:
+        st.session_state.afinidade_weight = 0.5
+    if 'disponibilidade_weight' not in st.session_state:
+        st.session_state.disponibilidade_weight = 0.5
+
+    # Callbacks para atualizar os estados quando os valores mudam
+    def on_escopo_change(escopo):
+        st.session_state.escopo_selecionado = escopo
+        
+    def on_analista_change(analista):
+        st.session_state.analista_selecionado = analista
+        
+    def on_inicio_change(data):
+        st.session_state.inicio_projeto = data
+        # Atualiza fim se necessário
+        if st.session_state.fim_projeto < data:
+            st.session_state.fim_projeto = data + pd.Timedelta(days=56)
+            
+    def on_fim_change(data):
+        st.session_state.fim_projeto = data
+        
+    def on_afinidade_weight_change(valor):
+        st.session_state.afinidade_weight = valor
+        st.session_state.disponibilidade_weight = round(1 - valor, 1)
+        
+    def on_disponibilidade_weight_change(valor):
+        st.session_state.disponibilidade_weight = valor
+        st.session_state.afinidade_weight = round(1 - valor, 1)
+
     # Cria um layout de 3 colunas para os filtros
     col_escopo, col_analista, col_data = st.columns(3)
     
@@ -553,7 +637,10 @@ if page == 'PCP':
         escopo = st.selectbox(
             "Portfólio",
             options=escopos,
-            index=0
+            index=escopos.index(st.session_state.escopo_selecionado),
+            on_change=on_escopo_change,
+            args=(st.session_state.escopo_selecionado,),
+            key="escopo_select"
         )
         
     with col_analista:
@@ -561,7 +648,10 @@ if page == 'PCP':
         analista_selecionado = st.selectbox(
             "Analista",
             options=["Todos"] + analistas, 
-            index=0
+            index=0 if st.session_state.analista_selecionado == "Todos" else analistas.index(st.session_state.analista_selecionado) + 1,
+            on_change=on_analista_change,
+            args=(st.session_state.analista_selecionado,),
+            key="analista_select"
         )
     
     with col_data:
@@ -569,8 +659,11 @@ if page == 'PCP':
             "Data de Início do Projeto", 
             min_value=datetime(datetime.today().year - 1, 1, 1).date(), 
             max_value=datetime(datetime.today().year + 1, 12, 31).date(), 
-            value=datetime.today().date(), 
-            format="DD/MM/YYYY"
+            value=st.session_state.inicio_projeto, 
+            format="DD/MM/YYYY",
+            on_change=on_inicio_change,
+            args=(st.session_state.inicio_projeto,),
+            key="inicio_date"
         )
     
     # Segunda linha para a data de fim
@@ -580,8 +673,11 @@ if page == 'PCP':
             "Data de Fim do Projeto", 
             min_value=inicio, 
             max_value=datetime(datetime.today().year + 1, 12, 31).date(), 
-            value=inicio + pd.Timedelta(days=56),  # Padrão para 8 semanas após o início
-            format="DD/MM/YYYY"
+            value=st.session_state.fim_projeto,
+            format="DD/MM/YYYY",
+            on_change=on_fim_change,
+            args=(st.session_state.fim_projeto,),
+            key="fim_date"
         )
     
     # Converte para timestamp para cálculos
@@ -616,11 +712,31 @@ if page == 'PCP':
     else:
         pcp_df['Nota Disponibilidade'] = 10
     
-    # Calcula Afinidade
-    # Calcula Nota Final como média ponderada
-    # Inputs para pesos
-    afinidade_weight = st.number_input("Peso da Afinidade (0.0 - 1.0)", min_value=0.3, max_value=0.7, value=0.5, step=0.1)
-    disponibilidade_weight = st.number_input("Peso da Disponibilidade (0.0 - 1.0)", min_value=0.3, max_value=0.7, value=0.5, step=0.1)
+    # Calcula Afinidade com base no escopo selecionado
+    pcp_df['Afinidade'] = pcp_df.apply(lambda row: calcular_afinidade(row, escopo), axis=1)
+    
+    # Inputs para pesos com valores do state
+    afinidade_weight = st.number_input(
+        "Peso da Afinidade (0.0 - 1.0)", 
+        min_value=0.3, 
+        max_value=0.7, 
+        value=st.session_state.afinidade_weight, 
+        step=0.1,
+        on_change=on_afinidade_weight_change,
+        args=(st.session_state.afinidade_weight,),
+        key="afinidade_weight_input"
+    )
+    
+    disponibilidade_weight = st.number_input(
+        "Peso da Disponibilidade (0.0 - 1.0)", 
+        min_value=0.3, 
+        max_value=0.7, 
+        value=st.session_state.disponibilidade_weight, 
+        step=0.1,
+        on_change=on_disponibilidade_weight_change,
+        args=(st.session_state.disponibilidade_weight,),
+        key="disponibilidade_weight_input"
+    )
     
     # Garante que os pesos somem 1
     if afinidade_weight + disponibilidade_weight != 1.0:
@@ -630,15 +746,15 @@ if page == 'PCP':
         afinidade_weight = round(afinidade_weight, 1)
         disponibilidade_weight = round(1 - afinidade_weight, 1)
         
+        # Atualiza session_state
+        st.session_state.afinidade_weight = afinidade_weight
+        st.session_state.disponibilidade_weight = disponibilidade_weight
+        
         st.write(f"Peso da Afinidade ajustado para: {afinidade_weight}")
         st.write(f"Peso da Disponibilidade ajustado para: {disponibilidade_weight}")
     
-    pcp_df['Afinidade'] = pcp_df.apply(calcular_afinidade, axis=1)
-    
-    # Calcula Nota Final diretamente
+    # Calcula Nota Final com os pesos atualizados
     pcp_df['Nota Final'] = (pcp_df['Afinidade'] * afinidade_weight + pcp_df['Nota Disponibilidade'] * disponibilidade_weight)
-    # Calcula Nota Final diretamente
-    pcp_df['Nota Final'] = (pcp_df['Afinidade'] + pcp_df['Nota Disponibilidade']) / 2
     
     # Ordena pela nota final
     pcp_df = pcp_df.sort_values(by='Nota Final', ascending=False)
@@ -662,6 +778,7 @@ if page == 'PCP':
     </ul>
     </div>
     """, unsafe_allow_html=True)
+    
     # Função para formatar o DataFrame para exibição
     def format_display_df(pcp_df):
         formatted_df = pcp_df[['Membro', 'Disponibilidade', 'Afinidade', 'Nota Final']].copy()
