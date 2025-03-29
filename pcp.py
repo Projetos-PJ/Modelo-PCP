@@ -506,46 +506,22 @@ if page == 'PCP':
         return horas_disponiveis
 
     def calcular_afinidade(analista, escopo_selecionado):
-        # Calcula a satisfação média com o portfólio específico selecionado
-        satisfacao_media = 0
-        count = 0
+        # Verifica se existe coluna específica de satisfação para o portfólio selecionado
+        satisfacao_col = f'Satisfação com o Portfólio: {escopo_selecionado}'
         
-        # Procura pelos projetos que têm o escopo selecionado
-        for i in range(1, 4):  # Projetos 1 a 3
-            portfolio_col = f'Portfólio do Projeto {i}'
-            satisfacao_col = f'Satisfação com o Projeto {i}'
-            
-            if portfolio_col in analista and satisfacao_col in analista:
-                if pd.notna(analista[portfolio_col]) and pd.notna(analista[satisfacao_col]):
-                    if str(analista[portfolio_col]).strip() == escopo_selecionado:
-                        # Converte string de satisfação para valor numérico
-                        satisfacao_str = str(analista[satisfacao_col]).strip().upper()
-                        if satisfacao_str == 'MUITO SATISFEITO':
-                            satisfacao_valor = 10
-                        elif satisfacao_str == 'SATISFEITO':
-                            satisfacao_valor = 7.5
-                        elif satisfacao_str == 'NEUTRO':
-                            satisfacao_valor = 5
-                        elif satisfacao_str == 'INSATISFEITO':
-                            satisfacao_valor = 2.5
-                        elif satisfacao_str == 'MUITO INSATISFEITO':
-                            satisfacao_valor = 0
-                        else:
-                            # Tenta converter para float se for um número
-                            try:
-                                satisfacao_valor = float(satisfacao_str)
-                            except:
-                                satisfacao_valor = 5  # Valor neutro padrão
-                        
-                        satisfacao_media += satisfacao_valor
-                        count += 1
-        
-        # Se não houver projetos no portfólio específico, use a média geral
-        if count == 0:
-            satisfacao_portfolio = analista.get('Satisfação Média com o Portfólio', 5) * 2
+        # Tenta obter o valor da coluna específica do portfólio
+        if satisfacao_col in analista and pd.notna(analista[satisfacao_col]):
+            try:
+                satisfacao_portfolio = float(analista[satisfacao_col])
+            except:
+                # Caso não consiga converter para float, usa valor neutro
+                satisfacao_portfolio = 3
         else:
-            satisfacao_portfolio = (satisfacao_media / count) * 2
+            # Se não encontrar satisfação específica, usa valor neutro
+            satisfacao_portfolio = 3  # Valor neutro
         
+        satisfacao_portfolio *= 2
+
         # Capacidade esperada = Validação média do Projeto * 2
         capacidade = analista.get('Validação média do Projeto', 0) * 2
 
