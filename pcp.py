@@ -72,6 +72,15 @@ if page == "Base Consolidada":
 if page == "PCP":
     st.title("PCP")
 
+date_columns = [
+                    "Início Real Projeto 1", "Fim previsto do Projeto 1 (sem atraso)", "Fim estimado do Projeto 1 (com atraso)",
+                    "Início Real Projeto 2", "Fim previsto do Projeto 2 (sem atraso)", "Fim estimado do Projeto 2 (com atraso)",
+                    "Início Real Projeto 3", "Fim previsto do Projeto 3 (sem atraso)", "Fim estimado do Projeto 3 (com atraso)",
+                    "Início Real Projeto 4", "Fim previsto do Projeto 4 (sem atraso)", "Fim estimado do Projeto 4 (com atraso)",
+                    "Início do Projeto Interno 1", "Início do Projeto Interno 2", "Início do Projeto Interno 3",
+                    "Fim do Projeto Interno 1", "Fim do Projeto Interno 2", "Fim do Projeto Interno 3"
+]
+
 # Função aprimorada para carregar dados
 @st.cache_data
 def load_pcp_data():
@@ -104,13 +113,6 @@ def new_func():
             'Como se sente em relação à carga': 'category'
         }
         
-        # Colunas de data que serão convertidas ao carregar
-        date_columns = [
-            'Início previsto Projeto 1', 'Início previsto Projeto 2',
-            'Início Real Projeto 1', 'Início Real Projeto 2',
-            'Fim previsto do Projeto 1 (sem atraso)', 'Fim previsto do Projeto 2 (sem atraso)',
-            'Fim estimado do Projeto 1 (com atraso)', 'Fim estimado do Projeto 2 (com atraso)'
-        ]
         parse_dates = date_columns
         
         # Carrega cada aba e pré-processa
@@ -208,7 +210,13 @@ def converte_data(df, date_columns):
     for col in date_columns:
         if col in df_copy.columns:
             try:
-                df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce')
+                # Converte para string primeiro antes de converter para datetime
+                df_copy[col] = df_copy[col].astype(str)
+                pd.set_option('future.no_silent_downcasting', True)
+                result = df_copy[col].replace('nan', np.nan)
+                pd.set_option('future.no_silent_downcasting', False)
+                df_copy[col] = result.infer_objects(copy=False)
+                df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce', format='mixed')
             except Exception as e:
                 logging.error(f"Erro ao converter coluna '{col}': {e}")
     return df_copy
@@ -223,13 +231,6 @@ if page == "Base Consolidada":
                 st.stop()
             pcp_df.replace('-', np.nan, inplace=True)
             cronograma = pcp_df
-
-            date_columns = [
-                'Início previsto Projeto 1', 'Início previsto Projeto 2',
-                'Início Real Projeto 1', 'Início Real Projeto 2',
-                'Fim previsto do Projeto 1 (sem atraso)', 'Fim previsto do Projeto 2 (sem atraso)',
-                'Fim estimado do Projeto 1 (com atraso)', 'Fim estimado do Projeto 2 (com atraso)'
-            ]
             
             # Filtros
             colcargo, colnome, colaloc = st.columns(3)
@@ -291,21 +292,14 @@ if page == "Base Consolidada":
                 st.write('---')
                 cronograma = cronograma[cronograma['Membro'] == nome]
 
-                date_columns_gantt = [
-                    "Início Real Projeto 1", "Fim previsto do Projeto 1 (sem atraso)", "Fim estimado do Projeto 1 (com atraso)",
-                    "Início Real Projeto 2", "Fim previsto do Projeto 2 (sem atraso)", "Fim estimado do Projeto 2 (com atraso)",
-                    "Início Real Projeto 3", "Fim previsto do Projeto 3 (sem atraso)", "Fim estimado do Projeto 3 (com atraso)",
-                    "Início do Projeto Interno 1", "Início do Projeto Interno 2", "Fim do Projeto Interno 1", "Fim do Projeto Interno 2"
-                ]
-
-                for col in date_columns_gantt:
+                for col in date_columns:
                     try:
                         cronograma[col] = pd.to_datetime(cronograma[col], format='%d/%m/%Y', errors='coerce')
                     except Exception as e:
                         st.error(f"Erro ao converter a coluna '{col}' para datetime: {e}", icon="🚨")
 
                 mes = datetime.today().month
-                for col in date_columns_gantt:
+                for col in date_columns:
                     try:
                         cronograma[col] = pd.to_datetime(cronograma[col], format='%d/%m/%Y', errors='coerce')
                     except Exception as e:
@@ -473,7 +467,7 @@ if page == 'PCP':
 
         # Subtrai horas conforme projetos ativos (cada projeto reduz 10h)
         for i in range(1, 5):  # Projetos 1 a 4
-            if pd.notnull(analista.get(f'Fim previsto do Projeto {i}', None)):
+            if pd.notnull(analista.get(f'Fim previsto do Projeto {i} (sem atraso)', None)):
                 horas_disponiveis -= 10
 
         # Subtrai horas conforme projetos internos ativos (cada um reduz 5h)
@@ -499,8 +493,8 @@ if page == 'PCP':
 
         # Ajusta conforme proximidade da data de fim de um projeto
         for i in range(1, 5):  # Projetos 1 a 4
-            fim_estimado = analista.get(f'Fim estimado do Projeto {i}', None)
-            fim_previsto = analista.get(f'Fim previsto do Projeto {i}', None)
+            fim_estimado = analista.get(f'Fim estimado do Projeto {i} (com atraso)', None)
+            fim_previsto = analista.get(f'Fim previsto do Projeto {i} (sem atraso)', None)
 
             fim_projeto = fim_estimado if pd.notnull(fim_estimado) else fim_previsto
 
@@ -665,13 +659,8 @@ if page == 'PCP':
     
     # Converte para timestamp para cálculos
     inicio_novo_projeto = pd.Timestamp(inicio)
-    
-    # Converte datas para datetime
-    date_cols = [f'Fim previsto do Projeto {i}' for i in range(1, 5)] + \
-                [f'Fim estimado do Projeto {i}' for i in range(1, 5)] + \
-                [f'Fim do Projeto Interno {i}' for i in range(1, 5)]
 
-    pcp_df = converte_data(pcp_df, date_cols)
+    pcp_df = converte_data(pcp_df, date_columns)
 
     # Filtra por analista se um for selecionado
     if analista_selecionado != "Todos":
