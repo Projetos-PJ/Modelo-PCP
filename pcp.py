@@ -13,8 +13,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Lista de cargos a serem excluídos
 cargos_excluidos = [
-    'Liderança de Outbound', 
-    'Coordenador Comercial', 
+    'Líder de Outbound', 
+    'Coordenador de Negócios', 
     'Coordenador de Inovação Comercial', 
     'Gerente Comercial',
     'Coordenador de Projetos', 
