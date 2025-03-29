@@ -154,7 +154,7 @@ def nucleo_func(nucleo_digitado):
     nucleos_map = {
         'nciv': 'NCiv',
         'ncon': 'NCon',
-        'ndados': 'NDados',
+        'ndados': 'Cópia de NDados',
         'ni': 'NI',
         'ntec': 'NTec'
     }
