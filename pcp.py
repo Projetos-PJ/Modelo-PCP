@@ -465,11 +465,6 @@ if page == 'PCP':
         horas_disponiveis -= analista.get('N° Aprendizagens', 0) * 5
         horas_disponiveis -= analista.get('N° Assessoria', 0) * 10
 
-        # Subtrai horas conforme projetos ativos (cada projeto reduz 10h)
-        for i in range(1, 5):  # Projetos 1 a 4
-            if pd.notnull(analista.get(f'Fim previsto do Projeto {i} (sem atraso)', None)):
-                horas_disponiveis -= 10
-
         # Subtrai horas conforme projetos internos ativos (cada um reduz 5h)
         for i in range(1, 5):  # Projetos Internos 1 a 4
             if pd.notnull(analista.get(f'Início do Projeto Interno {i}', None)):
@@ -500,10 +495,12 @@ if page == 'PCP':
 
             if pd.notnull(fim_projeto):
                 days_left = (fim_projeto - inicio_novo_projeto).days
+                if days_left > 14:
+                    horas_disponiveis -= 10
                 if 7 < days_left <= 14:
-                    horas_disponiveis += 6
+                    horas_disponiveis -= 4
                 elif days_left <= 7:
-                    horas_disponiveis += 10
+                    horas_disponiveis -= 1
         return horas_disponiveis
 
     def calcular_afinidade(analista, escopo_selecionado):
