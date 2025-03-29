@@ -13,8 +13,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Lista de cargos a serem excluídos
 cargos_excluidos = [
-    'Líder de Outbound', 
-    'Coordenador de Negócios', 
+    'Liderança de Outbound', 
+    'Coordenador Comercial', 
     'Coordenador de Inovação Comercial', 
     'Gerente Comercial',
     'Coordenador de Projetos', 
@@ -91,7 +91,7 @@ def new_func():
         file_path = os.path.join(downloads_path, "PCP Auto.xlsx")
         
         # Especifica quais abas carregar
-        sheet_names = ['NDados', 'NTec', 'NCiv', 'NI', 'NCon']
+        sheet_names = ['Cópia de NDados', 'NTec', 'NCiv', 'NI', 'NCon']
         
         # Carrega todas as abas especificadas
         all_sheets = {}
