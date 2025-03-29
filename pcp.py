@@ -113,13 +113,19 @@ def new_func():
             'Como se sente em relação à carga': 'category'
         }
         
-        parse_dates = date_columns
-        
         # Carrega cada aba e pré-processa
         for sheet in sheet_names:
             # Carrega a aba sem converter categorias inicialmente
             pcp_df = pd.read_excel(file_path, sheet_name=sheet, engine='openpyxl', 
-                              parse_dates=parse_dates, date_format='%d/%m/%Y')
+                              usecols=lambda x: x != 'Email PJ')
+            
+            # Converte colunas de data para o formato adequado
+            for date_col in date_columns:
+                if date_col in pcp_df.columns:
+                    try:
+                        pcp_df[date_col] = pd.to_datetime(pcp_df[date_col], format='%d/%m/%Y', errors='coerce').dt.strftime('%d/%m/%Y')
+                    except Exception as e:
+                        logging.warning(f"Erro ao converter coluna de data '{date_col}' na aba {sheet}: {e}")
             
             # Substitui '-' por NaN antes de converter para categorias
             pd.set_option('future.no_silent_downcasting', True)
@@ -203,23 +209,6 @@ with colni:
 with coltec:
     if st.button("NTec"):
         st.session_state.nucleo = 'NTec'
-
-# Função para converter colunas de data
-def converte_data(df, date_columns):
-    df_copy = df.copy()
-    for col in date_columns:
-        if col in df_copy.columns:
-            try:
-                # Converte para string primeiro antes de converter para datetime
-                df_copy[col] = df_copy[col].astype(str)
-                pd.set_option('future.no_silent_downcasting', True)
-                result = df_copy[col].replace('nan', np.nan)
-                pd.set_option('future.no_silent_downcasting', False)
-                df_copy[col] = result.infer_objects(copy=False)
-                df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce', format='mixed')
-            except Exception as e:
-                logging.error(f"Erro ao converter coluna '{col}': {e}")
-    return df_copy
 
 if page == "Base Consolidada":
     # Carregar o núcleo selecionado
@@ -645,8 +634,6 @@ if page == 'PCP':
     
     # Converte para timestamp para cálculos
     inicio_novo_projeto = pd.Timestamp(inicio)
-
-    pcp_df = converte_data(pcp_df, date_columns)
 
     # Filtra por analista se um for selecionado
     if analista_selecionado != "Todos":
