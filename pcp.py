@@ -115,7 +115,7 @@ def new_func():
         
         parse_dates = date_columns
         
-# Carrega cada aba e pré-processa
+        # Carrega cada aba e pré-processa
         for sheet in sheet_names:
             # Carrega a aba sem converter categorias inicialmente
             pcp_df = pd.read_excel(file_path, sheet_name=sheet, engine='openpyxl', 
@@ -263,10 +263,10 @@ if page == "Base Consolidada":
             # Filtros
             colcargo, colnome, colaloc = st.columns(3)
             with colnome:
-                nome = st.text_input("", placeholder='Membro', value=st.session_state.nome if st.session_state.nome else None)
+                nome = st.text_input("Nome do Membro", placeholder='Membro', value=st.session_state.nome if st.session_state.nome else None)
                 st.session_state.nome = nome
             with colcargo:
-                cargo = st.text_input("", placeholder='Cargo', value=st.session_state.cargo if st.session_state.cargo else None)
+                cargo = st.text_input("Cargo", placeholder='Cargo', value=st.session_state.cargo if st.session_state.cargo else None)
                 st.session_state.cargo = cargo
             with colaloc:
                 opcoes = ['Desalocado', '1 Alocação', '2 Alocações', '3 Alocações', '4+ Alocações']
@@ -279,7 +279,7 @@ if page == "Base Consolidada":
                 
                 # O multiselect pode retornar uma lista de opções selecionadas
                 aloc = st.multiselect(
-                    "",
+                    "Alocações",
                     placeholder="Alocações",
                     options=opcoes,
                     default=default_index  # Usando o valor de default_index como uma lista de índices
