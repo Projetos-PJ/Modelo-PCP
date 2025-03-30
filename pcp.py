@@ -420,231 +420,246 @@ if page == "Base Consolidada":
                     ),
                 )
 
-            df["Inicio trimestre"], df["Fim trimestre"] = get_quarter_dates()
+            if nome:
+                df["Inicio trimestre"], df["Fim trimestre"] = get_quarter_dates()
 
-            df = df.dropna(axis=1, how="all")
-            nome_formatado = " ".join(
-                [part.capitalize() for part in nome.split(".")] if nome else []
-            )
-
-            st.subheader(nome_formatado)
-            colunas = df.columns
-            pontos = []
-            yaxis = []
-            axis = 0
-
-            fig = go.Figure()
-
-            # Função auxiliar para verificar valores de projeto e adicionar traço no gráfico
-            def adicionar_projeto_ao_grafico(
-                df, tipo, numero, cor, axis, pontos, yaxis, fig
-            ):
-                col_projeto = (
-                    f"Projeto {numero}"
-                    if tipo == "externo"
-                    else f"Projeto Interno {numero}"
+                df = df.dropna(axis=1, how="all")
+                nome_formatado = " ".join(
+                    [part.capitalize() for part in nome.split(".")] if nome else []
                 )
 
-                # Verifica se o projeto existe no dataframe E não é NaN
-                if col_projeto in df.columns and pd.notna(df[col_projeto].iloc[0]):
-                    # Define coluna de início e fim baseado no tipo
-                    if tipo == "externo":
-                        # Tenta determinar a data de fim
-                        funcionando = True
-                        try:
-                            fim_col = f"Fim estimado do Projeto {numero} (com atraso)"
-                            df[f"Fim Projeto {numero}"] = df[fim_col]
-                        except:
+                st.subheader(nome_formatado)
+                colunas = df.columns
+                pontos = []
+                yaxis = []
+                axis = 0
+
+                fig = go.Figure()
+
+                # Função auxiliar para verificar valores de projeto e adicionar traço no gráfico
+                def adicionar_projeto_ao_grafico(
+                    df, tipo, numero, cor, axis, pontos, yaxis, fig
+                ):
+                    col_projeto = (
+                        f"Projeto {numero}"
+                        if tipo == "externo"
+                        else f"Projeto Interno {numero}"
+                    )
+
+                    # Verifica se o projeto existe no dataframe E não é NaN
+                    if col_projeto in df.columns and pd.notna(df[col_projeto].iloc[0]):
+                        # Define coluna de início e fim baseado no tipo
+                        if tipo == "externo":
+                            # Tenta determinar a data de fim
+                            funcionando = True
                             try:
                                 fim_col = (
-                                    f"Fim previsto do Projeto {numero} (sem atraso)"
+                                    f"Fim estimado do Projeto {numero} (com atraso)"
                                 )
                                 df[f"Fim Projeto {numero}"] = df[fim_col]
                             except:
+                                try:
+                                    fim_col = (
+                                        f"Fim previsto do Projeto {numero} (sem atraso)"
+                                    )
+                                    df[f"Fim Projeto {numero}"] = df[fim_col]
+                                except:
+                                    st.error(
+                                        f"Não foi possível determinar o fim do projeto {df[col_projeto].iloc[0]}",
+                                        icon="⚠",
+                                    )
+                                    funcionando = False
+
+                            if funcionando:
+                                inicio_col = f"Início Real Projeto {numero}"
+                                fim_col = f"Fim Projeto {numero}"
+                                cor_linha = [
+                                    "#b4944c",
+                                    "#9a845c",
+                                    "#847c64",
+                                    "#847c64",
+                                ][
+                                    min(numero - 1, 3)
+                                ]  # Cores para projetos 1-4
+                            else:
+                                return (
+                                    axis,
+                                    pontos,
+                                    yaxis,
+                                )  # Não adiciona se não tem data fim
+                        else:
+                            # Projetos internos
+                            inicio_col = f"Início do Projeto Interno {numero}"
+                            fim_col = f"Fim do Projeto Interno {numero}"
+
+                            # Verifica se a coluna de fim existe
+                            if fim_col not in df.columns:
                                 st.error(
-                                    f"Não foi possível determinar o fim do projeto {df[col_projeto].iloc[0]}",
+                                    f"Não foi possível determinar o fim do projeto interno {df[col_projeto].iloc[0]}",
                                     icon="⚠",
                                 )
-                                funcionando = False
+                                return axis, pontos, yaxis
 
-                        if funcionando:
-                            inicio_col = f"Início Real Projeto {numero}"
-                            fim_col = f"Fim Projeto {numero}"
-                            cor_linha = ["#b4944c", "#9a845c", "#847c64", "#847c64"][
-                                min(numero - 1, 3)
-                            ]  # Cores para projetos 1-4
-                        else:
-                            return (
-                                axis,
-                                pontos,
-                                yaxis,
-                            )  # Não adiciona se não tem data fim
-                    else:
-                        # Projetos internos
-                        inicio_col = f"Início do Projeto Interno {numero}"
-                        fim_col = f"Fim do Projeto Interno {numero}"
+                            cor_linha = "#405094"  # Cor para projetos internos
 
-                        # Verifica se a coluna de fim existe
-                        if fim_col not in df.columns:
-                            st.error(
-                                f"Não foi possível determinar o fim do projeto interno {df[col_projeto].iloc[0]}",
-                                icon="⚠",
+                        # Verifica se as datas de início e fim são válidas
+                        if pd.notna(df[inicio_col].iloc[0]) and pd.notna(
+                            df[fim_col].iloc[0]
+                        ):
+                            # Adiciona ao gráfico
+                            pontos.append(df[col_projeto])
+                            axis += 1
+                            yaxis.append(axis)
+
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=[df[inicio_col].iloc[0], df[fim_col].iloc[0]],
+                                    y=[axis, axis],
+                                    mode="lines",
+                                    name=df[col_projeto].iloc[0],
+                                    line=dict(color=cor_linha, width=4),
+                                )
                             )
-                            return axis, pontos, yaxis
 
-                        cor_linha = "#405094"  # Cor para projetos internos
+                    return axis, pontos, yaxis
 
-                    # Verifica se as datas de início e fim são válidas
-                    if pd.notna(df[inicio_col].iloc[0]) and pd.notna(
-                        df[fim_col].iloc[0]
-                    ):
-                        # Adiciona ao gráfico
-                        pontos.append(df[col_projeto])
+                # Função para adicionar atividades como aprendizagens e assessorias
+                def adicionar_atividades(
+                    df, tipo, quantidade, axis, pontos, yaxis, fig
+                ):
+                    for i in range(quantidade):
+                        pontos.append(f"{tipo} {i+1}")
                         axis += 1
                         yaxis.append(axis)
 
                         fig.add_trace(
                             go.Scatter(
-                                x=[df[inicio_col].iloc[0], df[fim_col].iloc[0]],
+                                x=[
+                                    df["Inicio trimestre"].iloc[0],
+                                    df["Fim trimestre"].iloc[0],
+                                ],
                                 y=[axis, axis],
                                 mode="lines",
-                                name=df[col_projeto].iloc[0],
-                                line=dict(color=cor_linha, width=4),
+                                name=f"{tipo} {i+1}",
+                                line=dict(color="#e4ab34", width=4),
                             )
                         )
+                    return axis, pontos, yaxis
 
-                return axis, pontos, yaxis
-
-            # Função para adicionar atividades como aprendizagens e assessorias
-            def adicionar_atividades(df, tipo, quantidade, axis, pontos, yaxis, fig):
-                for i in range(quantidade):
-                    pontos.append(f"{tipo} {i+1}")
-                    axis += 1
-                    yaxis.append(axis)
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=[
-                                df["Inicio trimestre"].iloc[0],
-                                df["Fim trimestre"].iloc[0],
-                            ],
-                            y=[axis, axis],
-                            mode="lines",
-                            name=f"{tipo} {i+1}",
-                            line=dict(color="#e4ab34", width=4),
-                        )
-                    )
-                return axis, pontos, yaxis
-
-            # Dentro do bloco principal
-            if not df.empty:
-                # Projetos externos (1-4)
-                for i in range(1, 5):
-                    axis, pontos, yaxis = adicionar_projeto_ao_grafico(
-                        df, "externo", i, "", axis, pontos, yaxis, fig
-                    )
-
-                # Projetos internos (1-2)
-                for i in range(1, 3):
-                    axis, pontos, yaxis = adicionar_projeto_ao_grafico(
-                        df, "interno", i, "", axis, pontos, yaxis, fig
-                    )
-
-                # Aprendizagens
-                if "N° Aprendizagens" in colunas and pd.notna(
-                    df["N° Aprendizagens"].iloc[0]
-                ):
-                    aprendizagens = int(df["N° Aprendizagens"].iloc[0])
-                    axis, pontos, yaxis = adicionar_atividades(
-                        df, "Aprendizagem", aprendizagens, axis, pontos, yaxis, fig
-                    )
-
-                # Assessorias
-                if "N° Assessorias" in colunas and pd.notna(
-                    df["N° Assessorias"].iloc[0]
-                ):
-                    assessorias = int(df["N° Assessorias"].iloc[0])
-                    axis, pontos, yaxis = adicionar_atividades(
-                        df, "Assessoria", assessorias, axis, pontos, yaxis, fig
-                    )
-
-                # Configurando o layout
-                fig.update_layout(
-                    title="df das Alocações",
-                    xaxis_title=None,
-                    yaxis_title="Alocações",
-                    xaxis=dict(tickformat="%m/%Y"),
-                    yaxis=dict(tickvals=yaxis, ticktext=pontos),
-                    showlegend=True,
-                )
-                if axis != 0:
-                    # Exibindo o gráfico no Streamlit
-                    st.plotly_chart(fig)
-                st.write("")
-
-                def display_portfolio_card(df, project_number, column_obj):
-                    # Check if project exists
-                    if f"Projeto {project_number}" not in df.columns or pd.isna(
-                        df[f"Projeto {project_number}"].iloc[0]
-                    ):
-                        return
-
-                    # Set default values for missing columns
-                    if f"Satisfação com o Projeto {project_number}" not in df.columns:
-                        df[f"Satisfação com o Projeto {project_number}"] = "não mapeada"
-
-                    if f"Portfólio do Projeto {project_number}" not in df.columns:
-                        df[f"Portfólio do Projeto {project_number}"] = "não mapeado"
-
-                    # Display the card
-                    with column_obj:
-                        st.markdown(
-                            f"""
-                            <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
-                                <h3>Portfólio de {df[f'Projeto {project_number}'].iloc[0]}</h3>
-                                <p>{df[f'Portfólio do Projeto {project_number}'].iloc[0]}, 
-                                   Satisfação com o projeto: {df[f'Satisfação com o Projeto {project_number}'].iloc[0]}</p>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-
-                # Usage in main code
+                # Dentro do bloco principal
                 if not df.empty:
-                    columns = []
-
-                    # Determine number of columns needed
-                    num_projects = 0
-                    for i in range(1, 4):  # Check for projects 1-3
-                        if f"Projeto {i}" in df.columns and pd.notna(
-                            df[f"Projeto {i}"].iloc[0]
-                        ):
-                            num_projects += 1
-
-                    # Create appropriate number of columns
-                    columns = st.columns(num_projects + 1)  # +1 for role info
-
-                    # Display project cards
-                    for i in range(1, num_projects + 1):
-                        display_portfolio_card(df, i, columns[i])
-
-                    # Display role info
-                    with columns[0]:
-                        # Role info card display
-                        if "Cargo no núcleo" not in df.columns:
-                            df["Cargo no núcleo"] = "Cargo não mapeado"
-                        if "Área de atuação" not in df.columns:
-                            df["Área de atuação"] = "Área de atuação não mapeada"
-
-                        st.markdown(
-                            f"""
-                            <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
-                                <h3>Cargo de {nome_formatado}</h3>
-                                <p>{df["Cargo no núcleo"].iloc[0]} - {df['Área de atuação'].iloc[0]}</p>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
+                    # Projetos externos (1-4)
+                    for i in range(1, 5):
+                        axis, pontos, yaxis = adicionar_projeto_ao_grafico(
+                            df, "externo", i, "", axis, pontos, yaxis, fig
                         )
+
+                    # Projetos internos (1-2)
+                    for i in range(1, 3):
+                        axis, pontos, yaxis = adicionar_projeto_ao_grafico(
+                            df, "interno", i, "", axis, pontos, yaxis, fig
+                        )
+
+                    # Aprendizagens
+                    if "N° Aprendizagens" in colunas and pd.notna(
+                        df["N° Aprendizagens"].iloc[0]
+                    ):
+                        aprendizagens = int(df["N° Aprendizagens"].iloc[0])
+                        axis, pontos, yaxis = adicionar_atividades(
+                            df, "Aprendizagem", aprendizagens, axis, pontos, yaxis, fig
+                        )
+
+                    # Assessorias
+                    if "N° Assessorias" in colunas and pd.notna(
+                        df["N° Assessorias"].iloc[0]
+                    ):
+                        assessorias = int(df["N° Assessorias"].iloc[0])
+                        axis, pontos, yaxis = adicionar_atividades(
+                            df, "Assessoria", assessorias, axis, pontos, yaxis, fig
+                        )
+
+                    # Configurando o layout
+                    fig.update_layout(
+                        title="df das Alocações",
+                        xaxis_title=None,
+                        yaxis_title="Alocações",
+                        xaxis=dict(tickformat="%m/%Y"),
+                        yaxis=dict(tickvals=yaxis, ticktext=pontos),
+                        showlegend=True,
+                    )
+                    if axis != 0:
+                        # Exibindo o gráfico no Streamlit
+                        st.plotly_chart(fig)
+                    st.write("")
+
+                    def display_portfolio_card(df, project_number, column_obj):
+                        # Check if project exists
+                        if f"Projeto {project_number}" not in df.columns or pd.isna(
+                            df[f"Projeto {project_number}"].iloc[0]
+                        ):
+                            return
+
+                        # Set default values for missing columns
+                        if (
+                            f"Satisfação com o Projeto {project_number}"
+                            not in df.columns
+                        ):
+                            df[f"Satisfação com o Projeto {project_number}"] = (
+                                "não mapeada"
+                            )
+
+                        if f"Portfólio do Projeto {project_number}" not in df.columns:
+                            df[f"Portfólio do Projeto {project_number}"] = "não mapeado"
+
+                        # Display the card
+                        with column_obj:
+                            st.markdown(
+                                f"""
+                                <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
+                                    <h3>Portfólio de {df[f'Projeto {project_number}'].iloc[0]}</h3>
+                                    <p>{df[f'Portfólio do Projeto {project_number}'].iloc[0]}, 
+                                    Satisfação com o projeto: {df[f'Satisfação com o Projeto {project_number}'].iloc[0]}</p>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                    # Usage in main code
+                    if not df.empty:
+                        columns = []
+
+                        # Determine number of columns needed
+                        num_projects = 0
+                        for i in range(1, 4):  # Check for projects 1-3
+                            if f"Projeto {i}" in df.columns and pd.notna(
+                                df[f"Projeto {i}"].iloc[0]
+                            ):
+                                num_projects += 1
+
+                        # Create appropriate number of columns
+                        columns = st.columns(num_projects + 1)  # +1 for role info
+
+                        # Display project cards
+                        for i in range(1, num_projects + 1):
+                            display_portfolio_card(df, i, columns[i])
+
+                        # Display role info
+                        with columns[0]:
+                            # Role info card display
+                            if "Cargo no núcleo" not in df.columns:
+                                df["Cargo no núcleo"] = "Cargo não mapeado"
+                            if "Área de atuação" not in df.columns:
+                                df["Área de atuação"] = "Área de atuação não mapeada"
+
+                            st.markdown(
+                                f"""
+                                <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
+                                    <h3>Cargo de {nome_formatado}</h3>
+                                    <p>{df["Cargo no núcleo"].iloc[0]} - {df['Área de atuação'].iloc[0]}</p>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
 
 if page == "PCP":
     # Funções de Backend
