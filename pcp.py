@@ -760,10 +760,6 @@ if page == 'PCP':
     pcp_df = converte_data(pcp_df, date_columns)
 
     # Filtra por analista se um for selecionado
-        
-    # if len(pcp_df) == 0:
-    #     st.warning("Nenhum analista encontrado com os filtros selecionados.", icon="⚠️")
-    #     st.stop()
     # Calcula todas as métricas de uma vez
     pcp_df['Disponibilidade'] = pcp_df.apply(lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1)
     
