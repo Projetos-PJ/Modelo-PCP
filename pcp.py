@@ -6,6 +6,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import plotly.graph_objects as go
+import os
 
 st.set_page_config(
     page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded"
@@ -97,59 +98,36 @@ date_columns = [
 
 
 # Função aprimorada para carregar dados
+@st.cache_data(ttl=86400)  # Cache expira em 1 dia
+# Função aprimorada para carregar dados
 @st.cache_data
 def load_pcp_data():
     try:
-        # Define the scope
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive",
-        ]
+        return new_func()
 
-        # Use credentials from st.secrets with better error handling
-        try:
-            credentials_dict = st.secrets["gcp_service_account"]
-        except Exception as e:
-            st.error(f"Erro ao carregar credenciais: {e}")
-            st.info(
-                """
-            Verifique se o arquivo .streamlit/secrets.toml existe com as credenciais corretas.
-            Locais válidos: 
-            - C:\\Users\\[seu-usuário]\\.streamlit\\secrets.toml
-            - [pasta-do-projeto]\\.streamlit\\secrets.toml
-            """
-            )
-            st.stop()
+    except FileNotFoundError:
+        st.error(
+            "Arquivo PCP Auto.xlsx não encontrado na pasta de downloads. Verifique se o arquivo existe lá.",
+            icon="🚨",
+        )
+        st.stop()
+    except Exception as e:
+        st.error(f"Erro ao carregar o arquivo: {e}", icon="🚨")
+        st.stop()
 
-        sheet_id = "10vTf8KTZLzQJJi7VtnXi6QC7nzj-jelD62-UHWVrLTQ"
 
-        # Authenticate and authorize access to Google Sheets API
-        try:
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(
-                credentials_dict, scope
-            )
-            client = gspread.authorize(creds)
-        except Exception as e:
-            st.error(f"Erro ao autenticar com a API do Google Sheets: {e}")
-            st.stop()
+def new_func():
+    try:
+        downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        file_path = os.path.join(downloads_path, "PCP Auto.xlsx")
 
-        # Open the Google Sheet using URL or title from secrets
-        try:
-            spreadsheet = client.open_by_key(sheet_id)
-        except Exception as e:
-            st.error(f"Não foi possível abrir a planilha: {e}")
-            st.info(
-                "Verifique se o nome/URL/ID da planilha está correto e se a conta de serviço tem acesso a ela."
-            )
-            st.stop()
-
-        # Define which worksheets to load
+        # Especifica quais abas carregar
         sheet_names = ["Cópia de NDados", "NTec", "NCiv", "NI", "NCon"]
 
-        # Dictionary to store all dataframes
+        # Carrega todas as abas especificadas
         all_sheets = {}
 
-        # Define the types of columns to optimize memory
+        # Define os tipos de colunas para otimizar a memória
         dtype_dict = {
             "Membro": "category",
             "Cargo no núcleo": "category",
@@ -157,60 +135,57 @@ def load_pcp_data():
             "Como se sente em relação à carga": "category",
         }
 
-        # Load each worksheet and pre-process
-        for sheet_name in sheet_names:
-            try:
-                # Get the worksheet
-                worksheet = spreadsheet.worksheet(sheet_name)
+        parse_dates = date_columns
 
-                # Get all values as a list of lists
-                data = worksheet.get_all_values()
+        # Carrega cada aba e pré-processa
+        for sheet in sheet_names:
+            # Carrega a aba sem converter categorias inicialmente
+            pcp_df = pd.read_excel(
+                file_path,
+                sheet_name=sheet,
+                engine="openpyxl",
+                usecols=lambda x: x != "Email PJ",
+            )
 
-                # Create a pandas DataFrame from the data
-                if data:
-                    headers = data[0]
-                    values = data[1:]
-                    pcp_df = pd.DataFrame(values, columns=headers)
+            # Converte colunas de data para o formato adequado
+            for date_col in date_columns:
+                if date_col in pcp_df.columns:
+                    try:
+                        pcp_df[date_col] = pd.to_datetime(
+                            pcp_df[date_col], format="%d/%m/%Y", errors="coerce"
+                        ).dt.strftime("%d/%m/%Y")
+                    except Exception as e:
+                        logging.warning(
+                            f"Erro ao converter coluna de data '{date_col}' na aba {sheet}: {e}"
+                        )
 
-                    # Convert columns to appropriate data types
-                    for date_col in date_columns:
-                        if date_col in pcp_df.columns:
-                            try:
-                                pcp_df[date_col] = pd.to_datetime(
-                                    pcp_df[date_col], format="%d/%m/%Y", errors="coerce"
-                                ).dt.strftime("%d/%m/%Y")
-                            except Exception as e:
-                                logging.warning(
-                                    f"Erro ao converter coluna de data '{date_col}' na aba {sheet_name}: {e}"
-                                )
+            # Substitui '-' por NaN antes de converter para categorias
+            pd.set_option("future.no_silent_downcasting", True)
+            pcp_df.replace("-", np.nan, inplace=True)
+            pd.set_option("future.no_silent_downcasting", False)
 
-                    # Replace '-' with NaN
-                    pd.set_option("future.no_silent_downcasting", True)
-                    pcp_df.replace("-", np.nan, inplace=True)
-                    pd.set_option("future.no_silent_downcasting", False)
+            # Converte colunas para categoria após substituição
+            for col, dtype in dtype_dict.items():
+                if col in pcp_df.columns:
+                    pcp_df[col] = pcp_df[col].astype(dtype)
 
-                    # Convert columns to categories
-                    for col, dtype in dtype_dict.items():
-                        if col in pcp_df.columns:
-                            pcp_df[col] = pcp_df[col].astype(dtype)
+            # Remove cargos excluídos
+            if "Cargo no núcleo" in pcp_df.columns:
+                pcp_df = pcp_df[~pcp_df["Cargo no núcleo"].isin(cargos_excluidos)]
 
-                    # Remove excluded roles
-                    if "Cargo no núcleo" in pcp_df.columns:
-                        pcp_df = pcp_df[
-                            ~pcp_df["Cargo no núcleo"].isin(cargos_excluidos)
-                        ]
-
-                    # Store in dictionary
-                    all_sheets[sheet_name] = pcp_df
-            except Exception as e:
-                logging.error(f"Error loading worksheet {sheet_name}: {e}")
-                continue
+            # Armazena no dicionário
+            all_sheets[sheet] = pcp_df
 
         return all_sheets
 
+    except FileNotFoundError:
+        st.error(
+            "Arquivo PCP Auto.xlsx não encontrado na pasta de downloads. Verifique se o arquivo existe lá.",
+            icon="🚨",
+        )
+        st.stop()
     except Exception as e:
-        st.error(f"Error loading data from Google Sheets: {e}", icon="🚨")
-        logging.error(f"Google Sheets API error: {e}")
+        st.error(f"Erro ao carregar o arquivo: {e}", icon="🚨")
         st.stop()
 
 
@@ -286,7 +261,7 @@ def converte_data(df, date_columns):
                 pd.set_option("future.no_silent_downcasting", False)
                 df_copy[col] = result.infer_objects(copy=False)
                 df_copy[col] = pd.to_datetime(
-                    df_copy[col], errors="coerce", format="mixed"
+                    df_copy[col], errors="coerce", format="%d/%m/%Y"
                 )
             except Exception as e:
                 logging.error(f"Erro ao converter coluna '{col}': {e}")
@@ -298,122 +273,43 @@ if page == "Base Consolidada":
     with st.spinner("Carregando..."):
         if st.session_state.nucleo != None:
             df = nucleo_func(st.session_state.nucleo)
-            df.replace("-", np.nan, inplace=True)
-            cronograma = df
-            df["Início previsto Projeto 1"] = (
-                pd.to_datetime(
-                    df["Início previsto Projeto 1"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início Real Projeto 1"] = (
-                pd.to_datetime(
-                    df["Início Real Projeto 1"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim previsto do Projeto 1 (sem atraso)"] = (
-                pd.to_datetime(
-                    df["Fim previsto do Projeto 1 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim estimado do Projeto 1 (com atraso)"] = (
-                pd.to_datetime(
-                    df["Fim estimado do Projeto 1 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início previsto Projeto 2"] = (
-                pd.to_datetime(
-                    df["Início previsto Projeto 2"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início Real Projeto 2"] = (
-                pd.to_datetime(
-                    df["Início Real Projeto 2"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim previsto do Projeto 2 (sem atraso)"] = (
-                pd.to_datetime(
-                    df["Fim previsto do Projeto 2 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim estimado do Projeto 2 (com atraso)"] = (
-                pd.to_datetime(
-                    df["Fim estimado do Projeto 2 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início previsto Projeto 3"] = (
-                pd.to_datetime(
-                    df["Início previsto Projeto 3"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início Real Projeto 3"] = (
-                pd.to_datetime(
-                    df["Início Real Projeto 3"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim previsto do Projeto 3 (sem atraso)"] = (
-                pd.to_datetime(
-                    df["Fim previsto do Projeto 3 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim estimado do Projeto 3 (com atraso)"] = (
-                pd.to_datetime(
-                    df["Fim estimado do Projeto 3 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início previsto Projeto 4"] = (
-                pd.to_datetime(
-                    df["Início previsto Projeto 4"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início Real Projeto 4"] = (
-                pd.to_datetime(
-                    df["Início Real Projeto 4"], format="%d/%m/%Y", errors="coerce"
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim previsto do Projeto 4 (sem atraso)"] = (
-                pd.to_datetime(
-                    df["Fim previsto do Projeto 4 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim estimado do Projeto 4 (com atraso)"] = (
-                pd.to_datetime(
-                    df["Fim estimado do Projeto 4 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-            ).dt.strftime("%d/%m/%Y")
-            df["Início do Projeto Interno 1"] = (
-                pd.to_datetime(df["Início do Projeto Interno 1"], errors="coerce")
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim do Projeto Interno 1"] = (
-                pd.to_datetime(df["Fim do Projeto Interno 1"], errors="coerce")
-            ).dt.strftime("%d/%m/%Y")
-            df["Início do Projeto Interno 2"] = (
-                pd.to_datetime(df["Início do Projeto Interno 2"], errors="coerce")
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim do Projeto Interno 2"] = (
-                pd.to_datetime(df["Fim do Projeto Interno 2"], errors="coerce")
-            ).dt.strftime("%d/%m/%Y")
-            df["Início do Projeto Interno 3"] = (
-                pd.to_datetime(df["Início do Projeto Interno 3"], errors="coerce")
-            ).dt.strftime("%d/%m/%Y")
-            df["Fim do Projeto Interno 3"] = (
-                pd.to_datetime(df["Fim do Projeto Interno 3"], errors="coerce")
-            ).dt.strftime("%d/%m/%Y")
+
+            def batch_convert_dates(df, columns, date_format="%d/%m/%Y"):
+                for col in columns:
+                    if col in df.columns:
+                        df[col] = pd.to_datetime(
+                            df[col], format=date_format, errors="coerce"
+                        ).dt.strftime(date_format)
+                return df
+
+            date_columns_to_convert = [
+                "Início previsto Projeto 1",
+                "Início Real Projeto 1",
+                "Fim previsto do Projeto 1 (sem atraso)",
+                "Fim estimado do Projeto 1 (com atraso)",
+                "Início previsto Projeto 2",
+                "Início Real Projeto 2",
+                "Fim previsto do Projeto 2 (sem atraso)",
+                "Fim estimado do Projeto 2 (com atraso)",
+                "Início Real Projeto 4",
+                "Fim previsto do Projeto 4 (sem atraso)",
+                "Fim estimado do Projeto 4 (com atraso)",
+                "Início previsto Projeto 3",
+                "Início Real Projeto 3",
+                "Fim previsto do Projeto 3 (sem atraso)",
+                "Fim estimado do Projeto 3 (com atraso)",
+                "Início previsto Projeto 4",
+                "Início Real Projeto 4",
+                "Fim previsto do Projeto 4 (sem atraso)",
+                "Fim estimado do Projeto 4 (com atraso)",
+                "Início do Projeto Interno 1",
+                "Fim do Projeto Interno 1",
+                "Início do Projeto Interno 2",
+                "Fim do Projeto Interno 2",
+                "Início do Projeto Interno 3",
+                "Fim do Projeto Interno 3",
+            ]
+            df = batch_convert_dates(df, date_columns_to_convert)
 
             # Filtros
             colcargo, colnome, colaloc = st.columns(3)
@@ -440,443 +336,241 @@ if page == "Base Consolidada":
                     "4+ Alocações",
                 ]
 
-                # Garantir que o índice padrão seja válido
-                if st.session_state.aloc and st.session_state.aloc in opcoes:
-                    default_index = [
-                        opcoes.index(st.session_state.aloc)
-                    ]  # Se o valor de aloc está presente, use o índice
-                else:
-                    default_index = []  # Se não, inicie com uma lista vazia
-
                 # O multiselect pode retornar uma lista de opções selecionadas
+                if st.session_state.aloc and st.session_state.aloc in opcoes:
+                    default_values = [st.session_state.aloc]
+                else:
+                    default_values = []  # Lista vazia se não houver valor padrão
+
                 aloc = st.multiselect(
                     "Alocações",
                     placeholder="Alocações",
                     options=opcoes,
-                    default=default_index,  # Usando o valor de default_index como uma lista de índices
+                    default=default_values,
                 )
+
+                # Update the session state
+                if aloc:
+                    st.session_state.aloc = aloc[0] if len(aloc) == 1 else None
+
                 # Filtragem dos dados
                 if nome:
-                    df = df[df["Membro"] == nome]
+                    df = df[
+                        df["Membro"].str.strip().str.lower() == nome.strip().lower()
+                    ]
                 if cargo:
                     df = df[df["Cargo no núcleo"] == cargo]
 
-                if aloc:
-                    filtrados = []
+            if aloc:
+                # Mapping de opção de texto para o valor numérico correspondente
+                opcoes_valor_map = {
+                    "Desalocado": 0,
+                    "1 Alocação": 1,
+                    "2 Alocações": 2,
+                    "3 Alocações": 3,
+                    "4+ Alocações": 4,
+                }
 
-                    # Para cada linha no DataFrame, calcular o número de alocações
-                    for _, row in df.iterrows():
-                        alocacoes = 0
-                        try:
-                            if pd.notna(row["Projeto 1"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if pd.notna(row["Projeto 2"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if pd.notna(row["Projeto 3"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if pd.notna(row["Projeto Interno 1"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if pd.notna(row["Projeto Interno 2"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if pd.notna(row["Projeto Interno 3"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if pd.notna(row["Cargo WI"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if pd.notna(row["Cargo MKT"]):
-                                alocacoes += 1
-                        except:
-                            pass
-                        try:
-                            if row["N° Aprendizagens"] != 0:
-                                alocacoes += row["N° Aprendizagens"]
-                        except:
-                            pass
-                        try:
-                            if row["N° Assessorias"] != 0:
-                                alocacoes += row["N° Assessorias"]
-                        except:
-                            pass
+                # Calcula o número de alocações para cada linha de forma vetorizada
+                alocacoes = (
+                    df[
+                        [
+                            "Projeto 1",
+                            "Projeto 2",
+                            "Projeto 3",
+                            "Projeto Interno 1",
+                            "Projeto Interno 2",
+                            "Projeto Interno 3",
+                            "Cargo WI",
+                            "Cargo MKT",
+                        ]
+                    ]
+                    .notna()
+                    .sum(axis=1)
+                )
+                alocacoes += df["N° Aprendizagens"].fillna(0) + df[
+                    "N° Assessorias"
+                ].fillna(0)
 
-                        # Limitar o número de alocações para no máximo 4
-                        if alocacoes > 4:
-                            alocacoes = 4
+                # Limita o número de alocações para no máximo 4
+                alocacoes = alocacoes.clip(upper=4)
 
-                        # Verifica se o número de alocações corresponde a qualquer um dos selecionados
-                        if alocacoes in [opcoes.index(opt) for opt in aloc]:
-                            filtrados.append(row)
-
-                    df = pd.DataFrame(filtrados)
+                # Filtra o DataFrame usando os valores mapeados
+                valores_filtro = [opcoes_valor_map[opt] for opt in aloc]
+                df = df[alocacoes.isin(valores_filtro)]
 
             if df.empty:
                 st.write("Sem informações para os dados filtrados")
             else:
-                df = df.dropna(axis=1, how="all")
                 df
 
-            if nome and nome in cronograma["Membro"].values:
-                st.write("---")
-                cronograma = cronograma[cronograma["Membro"] == nome]
-                cronograma["Início Real Projeto 1"] = pd.to_datetime(
-                    cronograma["Início Real Projeto 1"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim previsto do Projeto 1 (sem atraso)"] = pd.to_datetime(
-                    cronograma["Fim previsto do Projeto 1 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim estimado do Projeto 1 (com atraso)"] = pd.to_datetime(
-                    cronograma["Fim estimado do Projeto 1 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Início Real Projeto 2"] = pd.to_datetime(
-                    cronograma["Início Real Projeto 2"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim previsto do Projeto 2 (sem atraso)"] = pd.to_datetime(
-                    cronograma["Fim previsto do Projeto 2 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim estimado do Projeto 2 (com atraso)"] = pd.to_datetime(
-                    cronograma["Fim estimado do Projeto 2 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Início Real Projeto 3"] = pd.to_datetime(
-                    cronograma["Início Real Projeto 3"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim previsto do Projeto 3 (sem atraso)"] = pd.to_datetime(
-                    cronograma["Fim previsto do Projeto 3 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim estimado do Projeto 3 (com atraso)"] = pd.to_datetime(
-                    cronograma["Fim estimado do Projeto 3 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Início Real Projeto 4"] = pd.to_datetime(
-                    cronograma["Início Real Projeto 4"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim previsto do Projeto 4 (sem atraso)"] = pd.to_datetime(
-                    cronograma["Fim previsto do Projeto 4 (sem atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim estimado do Projeto 4 (com atraso)"] = pd.to_datetime(
-                    cronograma["Fim estimado do Projeto 4 (com atraso)"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Início do Projeto Interno 1"] = pd.to_datetime(
-                    cronograma["Início do Projeto Interno 1"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Início do Projeto Interno 2"] = pd.to_datetime(
-                    cronograma["Início do Projeto Interno 2"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim do Projeto Interno 1"] = pd.to_datetime(
-                    cronograma["Fim do Projeto Interno 1"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                cronograma["Fim do Projeto Interno 2"] = pd.to_datetime(
-                    cronograma["Fim do Projeto Interno 2"],
-                    format="%d/%m/%Y",
-                    errors="coerce",
-                )
-                mes = datetime.today().month
-                if mes in [1, 2, 3]:
-                    cronograma["Inicio trimestre"] = datetime(
-                        datetime.today().year, 1, 1
-                    )
-                    cronograma["Fim trimestre"] = datetime(datetime.today().year, 3, 31)
-                elif mes in [4, 5, 6]:
-                    cronograma["Inicio trimestre"] = datetime(
-                        datetime.today().year, 4, 1
-                    )
-                    cronograma["Fim trimestre"] = datetime(datetime.today().year, 6, 30)
-                elif mes in [7, 8, 9]:
-                    cronograma["Inicio trimestre"] = datetime(
-                        datetime.today().year, 7, 1
-                    )
-                    cronograma["Fim trimestre"] = datetime(datetime.today().year, 9, 30)
-                else:
-                    cronograma["Inicio trimestre"] = datetime(
-                        datetime.today().year, 10, 1
-                    )
-                    cronograma["Fim trimestre"] = datetime(
-                        datetime.today().year, 12, 31
-                    )
+            st.write("---")
 
-                cronograma = cronograma.dropna(axis=1, how="all")
-                nome_formatado = " ".join(
-                    [part.capitalize() for part in nome.split(".")]
+            def get_quarter_dates():
+                current_year = datetime.today().year
+                current_month = datetime.today().month
+                quarter_start_month = ((current_month - 1) // 3) * 3 + 1
+                quarter_end_month = quarter_start_month + 2
+                return (
+                    datetime(current_year, quarter_start_month, 1),
+                    datetime(current_year, quarter_end_month, 1)
+                    + pd.Timedelta(days=31)
+                    - pd.Timedelta(
+                        days=datetime(current_year, quarter_end_month, 1).day
+                    ),
                 )
-                st.subheader(nome_formatado)
-                colunas = cronograma.columns
-                pontos = []
-                yaxis = []
-                axis = 0
 
-                fig = go.Figure()
-                if "Projeto 1" in colunas:
-                    funcionando = True
-                    try:
-                        cronograma["Fim Projeto 1"] = cronograma[
-                            "Fim estimado do Projeto 1 (com atraso)"
-                        ]
-                    except:
+            df["Inicio trimestre"], df["Fim trimestre"] = get_quarter_dates()
+
+            df = df.dropna(axis=1, how="all")
+            nome_formatado = " ".join(
+                [part.capitalize() for part in nome.split(".")] if nome else []
+            )
+
+            st.subheader(nome_formatado)
+            colunas = df.columns
+            pontos = []
+            yaxis = []
+            axis = 0
+
+            fig = go.Figure()
+
+            # Função auxiliar para verificar valores de projeto e adicionar traço no gráfico
+            def adicionar_projeto_ao_grafico(
+                df, tipo, numero, cor, axis, pontos, yaxis, fig
+            ):
+                col_projeto = (
+                    f"Projeto {numero}"
+                    if tipo == "externo"
+                    else f"Projeto Interno {numero}"
+                )
+
+                # Verifica se o projeto existe no dataframe E não é NaN
+                if col_projeto in df.columns and pd.notna(df[col_projeto].iloc[0]):
+                    # Define coluna de início e fim baseado no tipo
+                    if tipo == "externo":
+                        # Tenta determinar a data de fim
+                        funcionando = True
                         try:
-                            cronograma["Fim Projeto 1"] = cronograma[
-                                "Fim previsto do Projeto 1 (sem atraso)"
-                            ]
+                            fim_col = f"Fim estimado do Projeto {numero} (com atraso)"
+                            df[f"Fim Projeto {numero}"] = df[fim_col]
                         except:
-                            st.error(
-                                f"Não foi possível determinar o fim do projeto {cronograma['Projeto 1'].iloc[0]}",
-                                icon="⚠",
-                            )
-                            funcionando = False
-                    if funcionando == True:
-                        pontos.append(cronograma["Projeto 1"])
-                        axis += 1
-                        yaxis.append(axis)
-                        # Adicionando o Projeto 1
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[
-                                    cronograma["Início Real Projeto 1"].iloc[0],
-                                    cronograma["Fim Projeto 1"].iloc[0],
-                                ],
-                                y=[axis, axis],
-                                mode="lines",
-                                name=cronograma["Projeto 1"].iloc[0],
-                                line=dict(color="#b4944c", width=4),
-                            )
-                        )
-                if "Projeto 2" in colunas:
-                    funcionando = True
-                    try:
-                        cronograma["Fim Projeto 2"] = cronograma[
-                            "Fim estimado do Projeto 2 (com atraso)"
-                        ]
-                    except:
-                        try:
-                            cronograma["Fim Projeto 2"] = cronograma[
-                                "Fim previsto do Projeto 2 (sem atraso)"
-                            ]
-                        except:
-                            st.error(
-                                f"Não foi possível determinar o fim do projeto {cronograma['Projeto 2'].iloc[0]}",
-                                icon="⚠",
-                            )
-                            funcionando = False
-                    if funcionando == True:
-                        pontos.append(cronograma["Projeto 2"])
-                        axis += 1
-                        yaxis.append(axis)
-                        # Adicionando o Projeto 2
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[
-                                    cronograma["Início Real Projeto 2"].iloc[0],
-                                    cronograma["Fim Projeto 2"].iloc[0],
-                                ],
-                                y=[axis, axis],
-                                mode="lines",
-                                name=cronograma["Projeto 2"].iloc[0],
-                                line=dict(color="#9a845c", width=4),
-                            )
-                        )
-                if "Projeto 3" in colunas:
-                    funcionando = True
-                    try:
-                        cronograma["Fim Projeto 3"] = cronograma[
-                            "Fim estimado do Projeto 3 (com atraso)"
-                        ]
-                    except:
-                        try:
-                            cronograma["Fim Projeto 3"] = cronograma[
-                                "Fim previsto do Projeto 3 (sem atraso)"
-                            ]
-                        except:
-                            st.error(
-                                f"Não foi possível determinar o fim do projeto {cronograma['Projeto 3'].iloc[0]}",
-                                icon="⚠",
-                            )
-                            funcionando = False
-                    if funcionando == True:
-                        pontos.append(cronograma["Projeto 3"])
-                        axis += 1
-                        yaxis.append(axis)
-                        # Adicionando o Projeto 3
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[
-                                    cronograma["Início Real Projeto 3"].iloc[0],
-                                    cronograma["Fim Projeto 3"].iloc[0],
-                                ],
-                                y=[axis, axis],
-                                mode="lines",
-                                name=cronograma["Projeto 3"].iloc[0],
-                                line=dict(color="#847c64", width=4),
-                            )
-                        )
-                if "Projeto 4" in colunas:
-                    funcionando = True
-                    try:
-                        cronograma["Fim Projeto 4"] = cronograma[
-                            "Fim estimado do Projeto 4 (com atraso)"
-                        ]
-                    except:
-                        try:
-                            cronograma["Fim Projeto 4"] = cronograma[
-                                "Fim previsto do Projeto 4 (sem atraso)"
-                            ]
-                        except:
-                            st.error(
-                                f"Não foi possível determinar o fim do projeto {cronograma['Projeto 4'].iloc[0]}",
-                                icon="⚠",
-                            )
-                            funcionando = False
-                    if funcionando == True:
-                        pontos.append(cronograma["Projeto 4"])
-                        axis += 1
-                        yaxis.append(axis)
-                        # Adicionando o Projeto 3
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[
-                                    cronograma["Início Real Projeto 4"].iloc[0],
-                                    cronograma["Fim Projeto 4"].iloc[0],
-                                ],
-                                y=[axis, axis],
-                                mode="lines",
-                                name=cronograma["Projeto 4"].iloc[0],
-                                line=dict(color="#847c64", width=4),
-                            )
-                        )
-                if "Projeto Interno 1" in colunas:
-                    if "Fim do Projeto Interno 1" in colunas:
-                        pontos.append(cronograma["Projeto Interno 1"])
-                        axis += 1
-                        yaxis.append(axis)
-                        # Adicionando o Projeto Interno 1
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[
-                                    cronograma["Início do Projeto Interno 1"].iloc[0],
-                                    cronograma["Fim do Projeto Interno 1"].iloc[0],
-                                ],
-                                y=[axis, axis],
-                                mode="lines",
-                                name=cronograma["Projeto Interno 1"].iloc[0],
-                                line=dict(color="#405094", width=4),
-                            )
-                        )
+                            try:
+                                fim_col = (
+                                    f"Fim previsto do Projeto {numero} (sem atraso)"
+                                )
+                                df[f"Fim Projeto {numero}"] = df[fim_col]
+                            except:
+                                st.error(
+                                    f"Não foi possível determinar o fim do projeto {df[col_projeto].iloc[0]}",
+                                    icon="⚠",
+                                )
+                                funcionando = False
+
+                        if funcionando:
+                            inicio_col = f"Início Real Projeto {numero}"
+                            fim_col = f"Fim Projeto {numero}"
+                            cor_linha = ["#b4944c", "#9a845c", "#847c64", "#847c64"][
+                                min(numero - 1, 3)
+                            ]  # Cores para projetos 1-4
+                        else:
+                            return (
+                                axis,
+                                pontos,
+                                yaxis,
+                            )  # Não adiciona se não tem data fim
                     else:
-                        st.error(
-                            f"Não foi possível determinar o fim do projeto interno {cronograma['Projeto Interno 1'].iloc[0]}",
-                            icon="⚠",
-                        )
-                if "Projeto Interno 2" in colunas:
-                    if "Fim do Projeto Interno 2" in colunas:
-                        pontos.append(cronograma["Projeto Interno 2"])
+                        # Projetos internos
+                        inicio_col = f"Início do Projeto Interno {numero}"
+                        fim_col = f"Fim do Projeto Interno {numero}"
+
+                        # Verifica se a coluna de fim existe
+                        if fim_col not in df.columns:
+                            st.error(
+                                f"Não foi possível determinar o fim do projeto interno {df[col_projeto].iloc[0]}",
+                                icon="⚠",
+                            )
+                            return axis, pontos, yaxis
+
+                        cor_linha = "#405094"  # Cor para projetos internos
+
+                    # Verifica se as datas de início e fim são válidas
+                    if pd.notna(df[inicio_col].iloc[0]) and pd.notna(
+                        df[fim_col].iloc[0]
+                    ):
+                        # Adiciona ao gráfico
+                        pontos.append(df[col_projeto])
                         axis += 1
                         yaxis.append(axis)
-                        # Adicionando o Projeto Interno 2
+
                         fig.add_trace(
                             go.Scatter(
-                                x=[
-                                    cronograma["Início do Projeto Interno 2"].iloc[0],
-                                    cronograma["Fim do Projeto Interno 2"].iloc[0],
-                                ],
+                                x=[df[inicio_col].iloc[0], df[fim_col].iloc[0]],
                                 y=[axis, axis],
                                 mode="lines",
-                                name=cronograma["Projeto Interno 2"].iloc[0],
-                                line=dict(color="#405094", width=4),
+                                name=df[col_projeto].iloc[0],
+                                line=dict(color=cor_linha, width=4),
                             )
-                        )
-                    else:
-                        st.error(
-                            f"Não foi possível determinar o fim do projeto interno {cronograma['Projeto Interno 2'].iloc[0]}",
-                            icon="⚠",
                         )
 
-                if "N° Aprendizagens" in colunas:
-                    # if cronograma['N° Aprendizagens'].iloc[0] != 0:
-                    aprendizagens = cronograma["N° Aprendizagens"].iloc[0]
-                    for quantidade in range(aprendizagens):
-                        pontos.append(f"Aprendizagem {quantidade+1}")
-                        axis += 1
-                        yaxis.append(axis)
-                        # Adicionando aprendizagens
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[
-                                    cronograma["Inicio trimestre"].iloc[0],
-                                    cronograma["Fim trimestre"].iloc[0],
-                                ],
-                                y=[axis, axis],
-                                mode="lines",
-                                name=f"Aprendizagem {quantidade+1}",
-                                line=dict(color="#e4ab34", width=4),
-                            )
+                return axis, pontos, yaxis
+
+            # Função para adicionar atividades como aprendizagens e assessorias
+            def adicionar_atividades(df, tipo, quantidade, axis, pontos, yaxis, fig):
+                for i in range(quantidade):
+                    pontos.append(f"{tipo} {i+1}")
+                    axis += 1
+                    yaxis.append(axis)
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[
+                                df["Inicio trimestre"].iloc[0],
+                                df["Fim trimestre"].iloc[0],
+                            ],
+                            y=[axis, axis],
+                            mode="lines",
+                            name=f"{tipo} {i+1}",
+                            line=dict(color="#e4ab34", width=4),
                         )
-                if "N° Assessorias" in colunas:
-                    aprendizagens = cronograma["N° Assessorias"].iloc[0]
-                    for quantidade in range(aprendizagens):
-                        pontos.append(f"Assessoria {quantidade+1}")
-                        axis += 1
-                        yaxis.append(axis)
-                        # Adicionando aprendizagens
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[
-                                    cronograma["Inicio trimestre"].iloc[0],
-                                    cronograma["Fim trimestre"].iloc[0],
-                                ],
-                                y=[axis, axis],
-                                mode="lines",
-                                name=f"Assessoria {quantidade+1}",
-                                line=dict(color="#e4ab34", width=4),
-                            )
-                        )
+                    )
+                return axis, pontos, yaxis
+
+            # Dentro do bloco principal
+            if not df.empty:
+                # Projetos externos (1-4)
+                for i in range(1, 5):
+                    axis, pontos, yaxis = adicionar_projeto_ao_grafico(
+                        df, "externo", i, "", axis, pontos, yaxis, fig
+                    )
+
+                # Projetos internos (1-2)
+                for i in range(1, 3):
+                    axis, pontos, yaxis = adicionar_projeto_ao_grafico(
+                        df, "interno", i, "", axis, pontos, yaxis, fig
+                    )
+
+                # Aprendizagens
+                if "N° Aprendizagens" in colunas and pd.notna(
+                    df["N° Aprendizagens"].iloc[0]
+                ):
+                    aprendizagens = int(df["N° Aprendizagens"].iloc[0])
+                    axis, pontos, yaxis = adicionar_atividades(
+                        df, "Aprendizagem", aprendizagens, axis, pontos, yaxis, fig
+                    )
+
+                # Assessorias
+                if "N° Assessorias" in colunas and pd.notna(
+                    df["N° Assessorias"].iloc[0]
+                ):
+                    assessorias = int(df["N° Assessorias"].iloc[0])
+                    axis, pontos, yaxis = adicionar_atividades(
+                        df, "Assessoria", assessorias, axis, pontos, yaxis, fig
+                    )
+
                 # Configurando o layout
                 fig.update_layout(
-                    title="Cronograma das Alocações",
+                    title="df das Alocações",
                     xaxis_title=None,
                     yaxis_title="Alocações",
                     xaxis=dict(tickformat="%m/%Y"),
@@ -887,91 +581,70 @@ if page == "Base Consolidada":
                     # Exibindo o gráfico no Streamlit
                     st.plotly_chart(fig)
                 st.write("")
-                st.write("")
-                if "Projeto 1" in colunas:
-                    if "Projeto 2" in colunas:
-                        if "Projeto 3" in colunas:
-                            colrole, colpro1, colpro2, colpro3 = st.columns(4)
-                            if "Satisfação com o Projeto 3" not in colunas:
-                                cronograma["Satisfação com o Projeto 3"] = "não mapeada"
-                            with colpro3:
-                                st.markdown(
-                                    """
-                                    <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
-                                        <h3>"""
-                                    f"Portfólio de {cronograma['Projeto 3'].iloc[0]}"
-                                    """</h3>
-                                        <p>"""
-                                    f"{cronograma['Portfólio do Projeto 3'].iloc[0]}"
-                                    """, """
-                                    f"Satisfação com o projeto: {cronograma['Satisfação com o Projeto 3'].iloc[0]}"
-                                    """</p>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
-                        else:
-                            colrole, colpro1, colpro2 = st.columns(3)
-                        if "Satisfação com o Projeto 2" not in colunas:
-                            cronograma["Satisfação com o Projeto 2"] = "não mapeada"
-                        with colpro2:
-                            st.markdown(
-                                """
-                                <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
-                                    <h3>"""
-                                f"Portfólio de {cronograma['Projeto 2'].iloc[0]}"
-                                """</h3>
-                                    <p>"""
-                                f"{cronograma['Portfólio do Projeto 2'].iloc[0]}"
-                                """, """
-                                f'Satisfação com o projeto: {cronograma["Satisfação com o Projeto 2"].iloc[0]}'
-                                """</p>
-                                </div>
-                                """,
-                                unsafe_allow_html=True,
-                            )
-                    else:
-                        colrole, colpro1 = st.columns(2)
-                    if "Satisfação com o Projeto 1" not in colunas:
-                        cronograma["Satisfação com o Projeto 1"] = "não mapeada"
-                    with colpro1:
+
+                def display_portfolio_card(df, project_number, column_obj):
+                    # Check if project exists
+                    if f"Projeto {project_number}" not in df.columns or pd.isna(
+                        df[f"Projeto {project_number}"].iloc[0]
+                    ):
+                        return
+
+                    # Set default values for missing columns
+                    if f"Satisfação com o Projeto {project_number}" not in df.columns:
+                        df[f"Satisfação com o Projeto {project_number}"] = "não mapeada"
+
+                    if f"Portfólio do Projeto {project_number}" not in df.columns:
+                        df[f"Portfólio do Projeto {project_number}"] = "não mapeado"
+
+                    # Display the card
+                    with column_obj:
                         st.markdown(
-                            """
+                            f"""
                             <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
-                                <h3>"""
-                            f"Portfólio de {cronograma['Projeto 1'].iloc[0]}"
-                            """</h3>
-                                <p>"""
-                            f"{cronograma['Portfólio do Projeto 1'].iloc[0]}"
-                            """, """
-                            f"Satisfação com o projeto: {cronograma['Satisfação com o Projeto 1'].iloc[0]}"
-                            """</p>
+                                <h3>Portfólio de {df[f'Projeto {project_number}'].iloc[0]}</h3>
+                                <p>{df[f'Portfólio do Projeto {project_number}'].iloc[0]}, 
+                                   Satisfação com o projeto: {df[f'Satisfação com o Projeto {project_number}'].iloc[0]}</p>
                             </div>
                             """,
                             unsafe_allow_html=True,
                         )
-                else:
-                    colrole, blank = st.columns(2)
-                if "Cargo no núcleo" not in colunas:
-                    cronograma["Cargo no núcleo"] = "Cargo não mapeado"
-                if "Área de atuação" not in colunas:
-                    cronograma["Área de atuação"] = "Área de atuação não mapeada"
-                with colrole:
-                    st.markdown(
-                        """
-                        <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
-                            <h3>"""
-                        f"Cargo de {nome_formatado}"
-                        """</h3>
-                            <p>"""
-                        f'{cronograma["Cargo no núcleo"].iloc[0]}'
-                        """ - """
-                        f"{cronograma['Área de atuação'].iloc[0]}"
-                        """</p>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+
+                # Usage in main code
+                if not df.empty:
+                    columns = []
+
+                    # Determine number of columns needed
+                    num_projects = 0
+                    for i in range(1, 4):  # Check for projects 1-3
+                        if f"Projeto {i}" in df.columns and pd.notna(
+                            df[f"Projeto {i}"].iloc[0]
+                        ):
+                            num_projects += 1
+
+                    # Create appropriate number of columns
+                    columns = st.columns(num_projects + 1)  # +1 for role info
+
+                    # Display project cards
+                    for i in range(1, num_projects + 1):
+                        display_portfolio_card(df, i, columns[i])
+
+                    # Display role info
+                    with columns[0]:
+                        # Role info card display
+                        if "Cargo no núcleo" not in df.columns:
+                            df["Cargo no núcleo"] = "Cargo não mapeado"
+                        if "Área de atuação" not in df.columns:
+                            df["Área de atuação"] = "Área de atuação não mapeada"
+
+                        st.markdown(
+                            f"""
+                            <div style="border: 1px solid #fbac04; padding: 10px; border-radius: 0px; width: 250px; color:#064381";>
+                                <h3>Cargo de {nome_formatado}</h3>
+                                <p>{df["Cargo no núcleo"].iloc[0]} - {df['Área de atuação'].iloc[0]}</p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
 if page == "PCP":
     # Funções de Backend
@@ -1056,16 +729,16 @@ if page == "PCP":
         st.stop()
 
     # Obtém o dataframe para o núcleo selecionado
-    pcp_df = nucleo_func(st.session_state.nucleo)
+    df = nucleo_func(st.session_state.nucleo)
 
-    if pcp_df is None:
+    if df is None:
         st.warning(
             f"Nenhum dado encontrado para o núcleo: {st.session_state.nucleo}", icon="⚠️"
         )
         st.stop()
 
     # Substitui '-' por NaN
-    pcp_df.replace("-", np.nan, inplace=True)
+    df.replace("-", np.nan, inplace=True)
 
     # Define os portfólios dinamicamente com base nas colunas da planilha
     def obter_portfolio_opcoes():
@@ -1176,9 +849,7 @@ if page == "PCP":
         st.session_state.escopo_selecionado = escopo
 
     with col_analista:
-        analistas = sorted(
-            pcp_df["Membro"].astype(str).unique().tolist(), key=str.lower
-        )
+        analistas = sorted(df["Membro"].astype(str).unique().tolist(), key=str.lower)
 
         # Usando o multiselect
         analistas_selecionados = st.multiselect(
@@ -1202,31 +873,29 @@ if page == "PCP":
         )
     inicio_novo_projeto = pd.Timestamp(inicio)
 
-    pcp_df = converte_data(pcp_df, date_columns)
+    df = converte_data(df, date_columns)
 
     # Filtra por analista se um for selecionado
     # Calcula todas as métricas de uma vez
-    pcp_df["Disponibilidade"] = pcp_df.apply(
+    df["Disponibilidade"] = df.apply(
         lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1
     )
 
     # Calcula Nota Disponibilidade
     max_disponibilidade = 30
-    min_disponibilidade = pcp_df["Disponibilidade"].min()
+    min_disponibilidade = df["Disponibilidade"].min()
     range_disponibilidade = max_disponibilidade - min_disponibilidade
 
     if range_disponibilidade != 0:
         scaling_factor = 10 / range_disponibilidade
-        pcp_df["Nota Disponibilidade"] = (
-            pcp_df["Disponibilidade"] - min_disponibilidade
+        df["Nota Disponibilidade"] = (
+            df["Disponibilidade"] - min_disponibilidade
         ) * scaling_factor
     else:
-        pcp_df["Nota Disponibilidade"] = 10
+        df["Nota Disponibilidade"] = 10
 
     # Calcula Afinidade com base no escopo selecionado
-    pcp_df["Afinidade"] = pcp_df.apply(
-        lambda row: calcular_afinidade(row, escopo), axis=1
-    )
+    df["Afinidade"] = df.apply(lambda row: calcular_afinidade(row, escopo), axis=1)
 
     def round_to_nearest(value):
         return round(value * 10) / 10
@@ -1300,17 +969,17 @@ if page == "PCP":
         st.write(f"Peso da Disponibilidade ajustado para: {disponibilidade_weight}")
 
     # Calcula Nota Final com os pesos atualizados
-    pcp_df["Nota Final"] = (
-        pcp_df["Afinidade"] * afinidade_weight
-        + pcp_df["Nota Disponibilidade"] * disponibilidade_weight
+    df["Nota Final"] = (
+        df["Afinidade"] * afinidade_weight
+        + df["Nota Disponibilidade"] * disponibilidade_weight
     )
 
-    pcp_df = pcp_df.dropna(subset=["Membro"])
-    dispo_media = pcp_df["Disponibilidade"].mean()
-    afini_media = pcp_df["Afinidade"].mean()
-    nota_media = pcp_df["Nota Final"].mean()
+    df = df.dropna(subset=["Membro"])
+    dispo_media = df["Disponibilidade"].mean()
+    afini_media = df["Afinidade"].mean()
+    nota_media = df["Nota Final"].mean()
     if analistas_selecionados != []:
-        pcp_df = pcp_df[pcp_df["Membro"].isin(analistas_selecionados)]
+        df = df[df["Membro"].isin(analistas_selecionados)]
     # Cria um divisor
     st.markdown("---")
 
@@ -1332,8 +1001,8 @@ if page == "PCP":
     )
 
     # Função para formatar o DataFrame para exibição
-    def format_display_df(pcp_df):
-        formatted_df = pcp_df[
+    def format_display_df(df):
+        formatted_df = df[
             ["Membro", "Disponibilidade", "Afinidade", "Nota Final"]
         ].copy()
         formatted_df["Membro"] = formatted_df["Membro"].astype(str)
@@ -1355,7 +1024,7 @@ if page == "PCP":
         return formatted_df
 
     # Formata as colunas para melhor exibição
-    display_df = format_display_df(pcp_df)
+    display_df = format_display_df(df)
     # Exibe a tabela
     for index, row in display_df.iterrows():
         if row["Membro"] != "Media Núcleo ⚠":
