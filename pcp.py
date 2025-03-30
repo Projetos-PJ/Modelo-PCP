@@ -1038,47 +1038,62 @@ if page == "PCP":
     # Substitui '-' por NaN
     pcp_df.replace("-", np.nan, inplace=True)
 
-    # Define os portfólios com base no núcleo selecionado
-    match st.session_state.nucleo:
-        case "NCiv":
-            escopos = [
-                "Arquitetônico",
-                "Design de Interiores",
-                "Elétrico/Fotovoltaico",
-                "Estrutural",
-                "Hidrossanitário",
-                "Real State",
-                "Não mapeado",
-            ]
-        case "NCon":
-            escopos = [
-                "Gestão de Processos",
-                "Pesquisa de Mercado",
-                "Planejamento Estratégico",
-                "Modelagem e Projeção",
-                "Não mapeado",
-            ]
-        case "NDados":
-            escopos = [
-                "Ciência de Dados",
-                "DSaaS",
-                "Engenharia de Dados",
-                "Inteligência Artificial",
-                "Inteligência de Negócios",
-                "Não mapeado",
-            ]
-        case "NI":
-            escopos = ["Inovacamp", "VBaaS", "Não mapeado"]
-        case "NTec":
-            escopos = [
-                "Delivery",
-                "Descoberta de Produto",
-                "Discovery",
-                "Escopo Aberto",
-                "Não mapeado",
-            ]
-        case _:
-            escopos = ["Não mapeado"]
+    # Define os portfólios dinamicamente com base nas colunas da planilha
+    def obter_portfolio_opcoes():
+        # Mapeamento de abreviações para nomes completos de núcleos
+        nucleos_map = {
+            "nciv": "NCiv",
+            "ncon": "NCon",
+            "ndados": "Cópia de NDados",
+            "ni": "NI",
+            "ntec": "NTec",
+        }
+
+        # Verifica se os dados estão carregados
+        if "pcp" not in st.session_state:
+            st.session_state.pcp = load_pcp_data()
+
+        # Obtém o nome da planilha do núcleo selecionado
+        nucleo_sheet = nucleos_map.get(st.session_state.nucleo.lower().replace(" ", ""))
+
+        if not nucleo_sheet or nucleo_sheet not in st.session_state.pcp:
+            return ["Não mapeado"]
+
+        # Pega o DataFrame do núcleo atual
+        df = st.session_state.pcp[nucleo_sheet]
+
+        # Procura por colunas que começam com "Satisfação com o Portfólio: "
+        portfolio_cols = [
+            col for col in df.columns if col.startswith("Satisfação com o Portfólio: ")
+        ]
+
+        # Extrai os nomes dos portfólios das colunas
+        portfolios = [
+            col.replace("Satisfação com o Portfólio: ", "") for col in portfolio_cols
+        ]
+
+        # Se não encontrou portfólios específicos, tenta buscar de outra forma
+        if not portfolios:
+            # Tenta buscar dos portfólios de projetos existentes
+            portfolios = []
+            for i in range(1, 5):  # Projetos 1 a 4
+                col_name = f"Portfólio do Projeto {i}"
+                if col_name in df.columns:
+                    portfolios.extend(df[col_name].dropna().unique().tolist())
+
+            portfolios = list(set(portfolios))  # Remove duplicados
+
+        # Adiciona "Não mapeado" se não for vazio
+        if portfolios:
+            if "Não mapeado" not in portfolios:
+                portfolios.append("Não mapeado")
+        else:
+            portfolios = ["Não mapeado"]
+
+        return sorted(portfolios)
+
+    # Utiliza a função para obter os portfólios dinamicamente
+    escopos = obter_portfolio_opcoes()
 
     # Inicializa session_state para os campos de filtro
     if "escopo_selecionado" not in st.session_state:
