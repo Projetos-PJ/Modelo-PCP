@@ -277,9 +277,10 @@ if page == "Base Consolidada":
             def batch_convert_dates(df, columns, date_format="%d/%m/%Y"):
                 for col in columns:
                     if col in df.columns:
+                        # Converte para datetime e mantém como datetime (sem converter para string)
                         df[col] = pd.to_datetime(
                             df[col], format=date_format, errors="coerce"
-                        ).dt.strftime(date_format)
+                        )
                 return df
 
             date_columns_to_convert = [
@@ -313,41 +314,75 @@ if page == "Base Consolidada":
 
             # Filtros
             colcargo, colnome, colaloc = st.columns(3)
+
+            # For the Name input
+            def update_nome():
+                st.session_state.nome = st.session_state.nome_input
+
             with colnome:
                 nome = st.text_input(
                     "Nome do Membro",
                     placeholder="Membro",
                     value=st.session_state.nome if st.session_state.nome else None,
+                    key="nome_input",
+                    on_change=update_nome,
                 )
-                st.session_state.nome = nome
+
+            opcoes = [
+                "Desalocado",
+                "1 Alocação",
+                "2 Alocações",
+                "3 Alocações",
+                "4+ Alocações",
+            ]
+
+            # For the Cargo input
+            def update_cargo():
+                st.session_state.cargo = st.session_state.cargo_input
+
             with colcargo:
                 cargo = st.text_input(
                     "Cargo",
                     placeholder="Cargo",
                     value=st.session_state.cargo if st.session_state.cargo else None,
+                    key="cargo_input",
+                    on_change=update_cargo,
                 )
-                st.session_state.cargo = cargo
-            with colaloc:
-                opcoes = [
-                    "Desalocado",
-                    "1 Alocação",
-                    "2 Alocações",
-                    "3 Alocações",
-                    "4+ Alocações",
-                ]
 
-                # O multiselect pode retornar uma lista de opções selecionadas
-                if st.session_state.aloc and st.session_state.aloc in opcoes:
-                    default_values = [st.session_state.aloc]
+            # For the Alocações multiselect
+            def update_aloc():
+                # If nothing selected, set to None rather than empty list
+                if st.session_state.aloc_input:
+                    st.session_state.aloc = (
+                        st.session_state.aloc_input[0]
+                        if len(st.session_state.aloc_input) == 1
+                        else None
+                    )
                 else:
-                    default_values = []  # Lista vazia se não houver valor padrão
+                    st.session_state.aloc = None
+
+            with colaloc:
+                # Prepare default values only from session state
+                default_values = (
+                    [st.session_state.aloc]
+                    if st.session_state.aloc and st.session_state.aloc in opcoes
+                    else []
+                )
 
                 aloc = st.multiselect(
                     "Alocações",
                     placeholder="Alocações",
                     options=opcoes,
                     default=default_values,
+                    key="aloc_input",
+                    on_change=update_aloc,
                 )
+
+                # O multiselect pode retornar uma lista de opções selecionadas
+                if st.session_state.aloc and st.session_state.aloc in opcoes:
+                    default_values = [st.session_state.aloc]
+                else:
+                    default_values = []  # Lista vazia se não houver valor padrão
 
                 # Update the session state
                 if aloc:
@@ -371,26 +406,97 @@ if page == "Base Consolidada":
                     "4+ Alocações": 4,
                 }
 
-                # Calcula o número de alocações para cada linha de forma vetorizada
-                alocacoes = (
-                    df[
-                        [
-                            "Projeto 1",
-                            "Projeto 2",
-                            "Projeto 3",
-                            "Projeto Interno 1",
-                            "Projeto Interno 2",
-                            "Projeto Interno 3",
-                            "Cargo WI",
-                            "Cargo MKT",
-                        ]
-                    ]
-                    .notna()
-                    .sum(axis=1)
-                )
-                alocacoes += df["N° Aprendizagens"].fillna(0) + df[
-                    "N° Assessorias"
-                ].fillna(0)
+                # Data atual para comparar com datas de fim
+                data_atual = datetime.today()
+
+                # Função para verificar se projeto está ativo
+                def projeto_ativo(row, col_projeto, col_fim_estimado, col_fim_previsto):
+                    if pd.isna(row[col_projeto]):
+                        return False
+
+                    fim_estimado = row.get(col_fim_estimado)
+                    fim_previsto = row.get(col_fim_previsto)
+
+                    fim_projeto = (
+                        fim_estimado if pd.notna(fim_estimado) else fim_previsto
+                    )
+
+                    # Projeto ativo se tem data de fim e essa data é posterior à data atual
+                    return pd.notna(fim_projeto) and fim_projeto > data_atual
+
+                # Conta projetos ativos para cada linha
+                projeto_cols = []
+                for i in range(1, 4):  # Projetos 1 a 3
+                    col_projeto = f"Projeto {i}"
+                    col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
+                    col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
+
+                    # Adiciona à lista apenas se a coluna existir
+                    if col_projeto in df.columns:
+                        projeto_cols.append(
+                            (col_projeto, col_fim_estimado, col_fim_previsto)
+                        )
+
+                # Inicia contador de alocações
+                alocacoes = pd.Series(0, index=df.index)
+
+                # Conta projetos ativos
+                for col_projeto, col_fim_estimado, col_fim_previsto in projeto_cols:
+                    alocacoes += df.apply(
+                        lambda row: (
+                            1
+                            if projeto_ativo(
+                                row, col_projeto, col_fim_estimado, col_fim_previsto
+                            )
+                            else 0
+                        ),
+                        axis=1,
+                    )
+
+                # Adiciona projetos internos ativos
+                for i in range(1, 3):  # Projetos internos 1 a 2
+                    col_projeto = f"Projeto Interno {i}"
+                    col_fim = f"Fim do Projeto Interno {i}"
+                    col_inicio = f"Início do Projeto Interno {i}"
+
+                    if col_projeto in df.columns:
+                        # Primeiro verifica se o fim está definido
+                        if col_fim in df.columns:
+                            alocacoes += df.apply(
+                                lambda row: (
+                                    1
+                                    if pd.notna(row[col_projeto])
+                                    and pd.notna(row[col_fim])
+                                    and row[col_fim] > data_atual
+                                    else 0
+                                ),
+                                axis=1,
+                            )
+                        # Se não, verifica se o início está definido
+                        elif col_inicio in df.columns:
+                            alocacoes += df.apply(
+                                lambda row: (
+                                    1
+                                    if pd.notna(row[col_projeto])
+                                    and pd.notna(row[col_inicio])
+                                    else 0
+                                ),
+                                axis=1,
+                            )
+
+                # Adiciona cargos que contam como alocação
+                if "Cargo WI" in df.columns:
+                    alocacoes += df["Cargo WI"].notna().astype(int)
+
+                if "Cargo MKT" in df.columns:
+                    alocacoes += df["Cargo MKT"].notna().astype(int)
+
+                # Adiciona aprendizagens e assessorias (contabiliza como alocações)
+                if "N° Aprendizagens" in df.columns:
+                    alocacoes += df["N° Aprendizagens"].fillna(0)
+
+                if "N° Assessorias" in df.columns:
+                    alocacoes += df["N° Assessorias"].fillna(0)
 
                 # Limita o número de alocações para no máximo 4
                 alocacoes = alocacoes.clip(upper=4)
@@ -398,7 +504,6 @@ if page == "Base Consolidada":
                 # Filtra o DataFrame usando os valores mapeados
                 valores_filtro = [opcoes_valor_map[opt] for opt in aloc]
                 df = df[alocacoes.isin(valores_filtro)]
-
             if df.empty:
                 st.write("Sem informações para os dados filtrados")
             else:
@@ -957,16 +1062,16 @@ if page == "PCP":
         st.rerun()
 
     with col_fim:
+        # Calcula a data de fim como início + 2 meses
+        default_fim_date = (pd.Timestamp(inicio) + pd.DateOffset(months=2)).date()
+
         fim = st.date_input(
             "**Data de Fim do Projeto**",
             min_value=inicio,
             max_value=datetime(datetime.today().year + 1, 12, 31).date(),
-            value=inicio,
+            value=default_fim_date,  # Usa a data padrão calculada
             format="DD/MM/YYYY",
         )
-    # Converte para timestamp para cálculos
-
-    # Inputs para pesos com valores do state
 
     # Garante que os pesos somem 1
     if afinidade_weight + disponibilidade_weight != 1.0:
@@ -1020,6 +1125,10 @@ if page == "PCP":
         formatted_df = df[
             ["Membro", "Disponibilidade", "Afinidade", "Nota Final"]
         ].copy()
+        # Ensure all numeric columns are float64 to avoid dtype incompatibility
+        formatted_df["Disponibilidade"] = formatted_df["Disponibilidade"].astype(float)
+        formatted_df["Afinidade"] = formatted_df["Afinidade"].astype(float)
+        formatted_df["Nota Final"] = formatted_df["Nota Final"].astype(float)
         formatted_df["Membro"] = formatted_df["Membro"].astype(str)
         formatted_df.loc[len(formatted_df)] = [
             "media.núcleo ⚠",
@@ -1027,15 +1136,11 @@ if page == "PCP":
             afini_media,
             nota_media,
         ]
-        formatted_df = formatted_df.sort_values(
-            by="Nota Final", ascending=False
-        )  # formatted_df['Disponibilidade'] = formatted_df['Disponibilidade'].apply(lambda x: f"{x:.1f}h")
-        # formatted_df['Afinidade'] = formatted_df['Afinidade'].apply(lambda x: f"{x:.1f}/10")
-        # formatted_df['Nota Final'] = formatted_df['Nota Final'].apply(lambda x: f"{x:.1f}/10")
-        for index, row in formatted_df.iterrows():
-            formatted_df.at[index, "Membro"] = " ".join(
-                [part.capitalize() for part in row["Membro"].split(".")]
-            )
+        formatted_df = formatted_df.sort_values(by="Nota Final", ascending=False)
+        # Capitalize member names
+        formatted_df["Membro"] = formatted_df["Membro"].apply(
+            lambda x: " ".join([part.capitalize() for part in x.split(".")])
+        )
         return formatted_df
 
     # Formata as colunas para melhor exibição
