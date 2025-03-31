@@ -159,11 +159,6 @@ def new_func():
                             f"Erro ao converter coluna de data '{date_col}' na aba {sheet}: {e}"
                         )
 
-            # Substitui '-' por NaN antes de converter para categorias
-            pd.set_option("future.no_silent_downcasting", True)
-            pcp_df.replace("-", np.nan, inplace=True)
-            pd.set_option("future.no_silent_downcasting", False)
-
             # Converte colunas para categoria após substituição
             for col, dtype in dtype_dict.items():
                 if col in pcp_df.columns:
@@ -189,7 +184,6 @@ def new_func():
         st.stop()
 
 
-# Função para obter e filtrar dados de um núcleo específico
 def nucleo_func(nucleo_digitado):
     # Normaliza a entrada
     nucleo_digitado = nucleo_digitado.replace(" ", "").lower()
@@ -214,7 +208,34 @@ def nucleo_func(nucleo_digitado):
         return None
 
     # Retorna uma cópia do DataFrame já pré-processado
-    return st.session_state.pcp[sheet_name].copy()
+    df = st.session_state.pcp[sheet_name].copy()
+
+    # Drop columns with all NaN/None values for this specific sheet
+    # Convert 'None' strings to None
+    df = df.replace("None", None)
+    df = df.replace("-", None)
+
+    # Drop columns that are completely empty (all NaN/None)
+    df = df.dropna(axis=1, how="all")
+
+    # Identify and drop columns that contain only empty strings or 'None'/'none' strings
+    cols_to_drop = []
+    for col in df.columns:
+        # Check if all non-NaN values in column are empty strings, 'None', or 'none'
+        non_na_values = df[col].dropna()
+        if len(non_na_values) == 0 or (
+            non_na_values.astype(str)
+            .str.strip()
+            .str.lower()
+            .isin(["", "none", "nan"])
+            .all()
+        ):
+            cols_to_drop.append(col)
+
+    if cols_to_drop:
+        df = df.drop(columns=cols_to_drop)
+
+    return df
 
 
 # Inicializando session_state para manter os valores dos filtros
@@ -507,7 +528,17 @@ if page == "Base Consolidada":
             if df.empty:
                 st.write("Sem informações para os dados filtrados")
             else:
-                df
+                try:
+                    # Reset index
+                    df = df.reset_index(drop=True)
+
+                    # Display the dataframe
+                    st.dataframe(df)
+                except Exception as e:
+                    st.error(f"Erro ao exibir dados: {e}")
+                    # Fallback display method
+                    st.write("Visualização simplificada dos dados:")
+                    st.table(df[["Membro"]].head())
 
             st.write("---")
 
