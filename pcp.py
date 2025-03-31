@@ -529,17 +529,17 @@ if page == "Base Consolidada":
                 st.write("Sem informações para os dados filtrados")
             else:
                 try:
-                    # Reset index
-                    df = df.reset_index(drop=True)
+                    # Reset index and drop it from the display
+                    df_display = df.copy().reset_index(drop=True)
 
-                    # Display the dataframe
-                    st.dataframe(df)
+                    # Additional cleanup for empty columns
+                    df_display = df_display.replace("None", None)
+                    df_display = df_display.replace("-", None)
+
+                    # Display dataframe without index
+                    st.dataframe(df_display, hide_index=True)
                 except Exception as e:
                     st.error(f"Erro ao exibir dados: {e}")
-                    # Fallback display method
-                    st.write("Visualização simplificada dos dados:")
-                    st.table(df[["Membro"]].head())
-
             st.write("---")
 
             def get_quarter_dates():
