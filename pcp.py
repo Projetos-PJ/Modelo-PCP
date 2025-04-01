@@ -60,6 +60,8 @@ st.markdown(
         background-color: #064381;
         border-bottom: 2px solid #064381;
     }
+    #MainMenu {visibility: hidden;}
+    footer {visivility: hidden;}
     </style>
     <div class="fullscreen-div">
     </div>
