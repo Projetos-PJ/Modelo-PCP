@@ -57,9 +57,12 @@ st.markdown(
         height: 2px;  /* Garantindo que a altura será 2px para hr sem atributo size para manter a consistência */
     }
     .st-emotion-cache-10d29ip hr {
+
         background-color: #064381;
         border-bottom: 2px solid #064381;
     }
+    #MainMenu {visibility: hidden;}
+    footer {visivility: hidden;}
     </style>
     <div class="fullscreen-div">
     </div>
@@ -120,7 +123,7 @@ def new_func():
         file_path = os.path.join(downloads_path, "PCP Auto.xlsx")
 
         # Especifica quais abas carregar
-        sheet_names = ["Cópia de NDados", "NTec", "NCiv", "NI", "NCon"]
+        sheet_names = ["NDados", "NTec", "NCiv", "NI", "NCon"]
 
         # Carrega todas as abas especificadas
         all_sheets = {}
@@ -132,8 +135,6 @@ def new_func():
             "Área de atuação": "category",
             "Como se sente em relação à carga": "category",
         }
-
-        parse_dates = date_columns
 
         # Carrega cada aba e pré-processa
         for sheet in sheet_names:
@@ -190,7 +191,7 @@ def nucleo_func(nucleo_digitado):
     nucleos_map = {
         "nciv": "NCiv",
         "ncon": "NCon",
-        "ndados": "Cópia de NDados",
+        "ndados": "NDados",
         "ni": "NI",
         "ntec": "NTec",
     }
@@ -895,7 +896,7 @@ if page == "PCP":
         nucleos_map = {
             "nciv": "NCiv",
             "ncon": "NCon",
-            "ndados": "Cópia de NDados",
+            "ndados": "NDados",
             "ni": "NI",
             "ntec": "NTec",
         }
