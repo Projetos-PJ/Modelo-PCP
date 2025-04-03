@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-
 st.set_page_config(
     page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded"
 )
@@ -59,9 +58,12 @@ st.markdown(
         height: 2px;  /* Garantindo que a altura será 2px para hr sem atributo size para manter a consistência */
     }
     .st-emotion-cache-10d29ip hr {
+
         background-color: #064381;
         border-bottom: 2px solid #064381;
     }
+    #MainMenu {visibility: hidden;}
+    footer {visivility: hidden;}
     </style>
     <div class="fullscreen-div">
     </div>
@@ -111,57 +113,76 @@ def load_pcp_data():
 
 
 def load_from_gsheets():
-    # Use credentials from secrets.toml
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
-
-    # Create credentials dictionary from secrets
-    creds_info = st.secrets["gcp_service_account"]
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
-
-    # Connect to Google Sheets
-    client = gspread.authorize(credentials)
-
-    # Open the spreadsheet by name (or ID if you have it)
-    spreadsheet_name = "PCP Auto"  # Replace with your actual sheet name
     try:
-        spreadsheet = client.open(spreadsheet_name)
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(
-            f"Planilha '{spreadsheet_name}' não encontrada no Google Sheets.", icon="🚨"
-        )
-        st.stop()
+        # Set up authentication scope for Google Sheets API
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive",
+        ]
 
-    # Specify which sheets to load
-    sheet_names = ["Cópia de NDados", "NTec", "NCiv", "NI", "NCon"]
-
-    # Load all specified sheets
-    all_sheets = {}
-
-    # Define column types to optimize memory
-    dtype_dict = {
-        "Membro": "category",
-        "Cargo no núcleo": "category",
-        "Área de atuação": "category",
-        "Como se sente em relação à carga": "category",
-    }
-
-    for sheet_name in sheet_names:
+        # Get credentials from secrets.toml file
         try:
-            # Get worksheet
-            worksheet = spreadsheet.worksheet(sheet_name)
+            creds_info = st.secrets["gcp_service_account"]
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(
+                creds_info, scope
+            )
+        except KeyError:
+            st.error(
+                "Erro: Credenciais de serviço não encontradas no arquivo secrets.toml.",
+                icon="🚨",
+            )
+            st.stop()
 
-            # Get all values
-            data = worksheet.get_all_values()
+        # Connect to Google Sheets API
+        client = gspread.authorize(credentials)
 
-            # Convert to pandas DataFrame
-            if data:
+        # Open the spreadsheet by name
+        spreadsheet_name = "PCP Auto"
+        try:
+            spreadsheet = client.open(spreadsheet_name)
+        except gspread.exceptions.SpreadsheetNotFound:
+            st.error(
+                f"Planilha '{spreadsheet_name}' não encontrada no Google Sheets.",
+                icon="🚨",
+            )
+            st.stop()
+        except gspread.exceptions.APIError as e:
+            st.error(f"Erro na API do Google Sheets: {e}", icon="🚨")
+            st.stop()
+
+        # Specify which sheets to load
+        sheet_names = ["NDados", "NTec", "NCiv", "NI", "NCon"]
+
+        # Define column types to optimize memory
+        dtype_dict = {
+            "Membro": "category",
+            "Cargo no núcleo": "category",
+            "Área de atuação": "category",
+            "Como se sente em relação à carga": "category",
+        }
+
+        # Dictionary to store all DataFrames
+        all_sheets = {}
+
+        # Process each sheet
+        for sheet_name in sheet_names:
+            try:
+                # Get worksheet
+                worksheet = spreadsheet.worksheet(sheet_name)
+
+                # Get all values (more efficient than cell-by-cell access)
+                data = worksheet.get_all_values()
+
+                if not data:
+                    logging.warning(f"Nenhum dado encontrado na planilha: {sheet_name}")
+                    all_sheets[sheet_name] = pd.DataFrame()
+                    continue
+
+                # Extract headers and values
                 headers = data[0]
                 values = data[1:]
 
-                # Filter out "Email PJ" column if it exists
+                # Filter out "Email PJ" column for privacy/security if it exists
                 if "Email PJ" in headers:
                     email_index = headers.index("Email PJ")
                     headers = [h for i, h in enumerate(headers) if i != email_index]
@@ -170,12 +191,14 @@ def load_from_gsheets():
                         for row in values
                     ]
 
+                # Create DataFrame
                 pcp_df = pd.DataFrame(values, columns=headers)
 
                 # Process date columns
                 for date_col in date_columns:
                     if date_col in pcp_df.columns:
                         try:
+                            # Convert to datetime and format consistently
                             pcp_df[date_col] = pd.to_datetime(
                                 pcp_df[date_col], format="%d/%m/%Y", errors="coerce"
                             ).dt.strftime("%d/%m/%Y")
@@ -184,7 +207,7 @@ def load_from_gsheets():
                                 f"Erro ao converter coluna de data '{date_col}' na aba {sheet_name}: {e}"
                             )
 
-                # Convert columns to category after substitution
+                # Convert categorical columns to optimize memory
                 for col, dtype in dtype_dict.items():
                     if col in pcp_df.columns:
                         pcp_df[col] = pcp_df[col].astype(dtype)
@@ -193,17 +216,28 @@ def load_from_gsheets():
                 if "Cargo no núcleo" in pcp_df.columns:
                     pcp_df = pcp_df[~pcp_df["Cargo no núcleo"].isin(cargos_excluidos)]
 
-                # Store in dictionary
+                # Store processed DataFrame
                 all_sheets[sheet_name] = pcp_df
-            else:
-                st.warning(f"No data found in sheet: {sheet_name}")
+
+            except gspread.exceptions.WorksheetNotFound:
+                st.warning(f"Planilha '{sheet_name}' não encontrada no documento.")
+                all_sheets[sheet_name] = pd.DataFrame()
+            except Exception as e:
+                st.warning(f"Erro ao carregar planilha '{sheet_name}': {str(e)}")
+                logging.error(
+                    f"Erro ao carregar planilha '{sheet_name}': {str(e)}", exc_info=True
+                )
                 all_sheets[sheet_name] = pd.DataFrame()
 
-        except Exception as e:
-            st.warning(f"Failed to load sheet '{sheet_name}': {e}")
-            all_sheets[sheet_name] = pd.DataFrame()
+        if not all_sheets:
+            st.warning("Nenhuma planilha foi carregada com sucesso.")
 
-    return all_sheets
+        return all_sheets
+
+    except Exception as e:
+        logging.error(f"Erro ao conectar com Google Sheets: {str(e)}", exc_info=True)
+        st.error(f"Erro ao conectar com Google Sheets: {str(e)}", icon="🚨")
+        st.stop()
 
 
 def nucleo_func(nucleo_digitado):
@@ -214,7 +248,7 @@ def nucleo_func(nucleo_digitado):
     nucleos_map = {
         "nciv": "NCiv",
         "ncon": "NCon",
-        "ndados": "Cópia de NDados",
+        "ndados": "NDados",
         "ni": "NI",
         "ntec": "NTec",
     }
@@ -824,9 +858,22 @@ if page == "PCP":
     def calcular_disponibilidade(analista, inicio_novo_projeto):
         horas_disponiveis = 30  # Começamos com 30h disponíveis
 
-        # Subtrai horas conforme aprendizados e assessorias
-        horas_disponiveis -= analista.get("N° Aprendizagens", 0) * 5
-        horas_disponiveis -= analista.get("N° Assessorias", 0) * 10
+        # Subtrai horas conforme aprendizados e assessorias (com tratamento de strings)
+        try:
+            n_aprendizagens = analista.get("N° Aprendizagens", 0)
+            if pd.notna(n_aprendizagens):
+                val_aprendizagens = str(n_aprendizagens).replace(",", ".")
+                horas_disponiveis -= float(val_aprendizagens) * 5
+        except ValueError:
+            pass
+
+        try:
+            n_assessorias = analista.get("N° Assessorias", 0)
+            if pd.notna(n_assessorias):
+                val_assessorias = str(n_assessorias).replace(",", ".")
+                horas_disponiveis -= float(val_assessorias) * 10
+        except ValueError:
+            pass
 
         # Subtrai horas conforme projetos internos ativos (cada um reduz 5h)
         for i in range(1, 5):  # Projetos Internos 1 a 4
@@ -835,7 +882,7 @@ if page == "PCP":
 
         # Ajusta conforme cargo no núcleo
         cargo = str(analista.get("Cargo no núcleo", "")).strip().upper()
-        if cargo in ["SDR", "HUNTER", "ANALISTA SÊNIOR"]:
+        if cargo in ["SDR OU HUNTER", "ANALISTA SÊNIOR"]:
             horas_disponiveis -= 10
 
         # Ajusta conforme proximidade da data de fim de um projeto
@@ -857,6 +904,7 @@ if page == "PCP":
                     horas_disponiveis -= 4
                 elif days_left <= 7:
                     horas_disponiveis -= 1
+
         return horas_disponiveis
 
     def calcular_afinidade(analista, escopo_selecionado):
@@ -865,19 +913,33 @@ if page == "PCP":
 
         # Tenta obter o valor da coluna específica do portfólio
         if satisfacao_col in analista and pd.notna(analista[satisfacao_col]):
-            try:
-                satisfacao_portfolio = float(analista[satisfacao_col])
-            except:
-                # Caso não consiga converter para float, usa valor neutro
-                satisfacao_portfolio = 3
+            val = str(analista[satisfacao_col]).replace(",", ".")
+            satisfacao_portfolio = float(val)
         else:
             # Se não encontrar satisfação específica, usa valor neutro
-            satisfacao_portfolio = 3  # Valor neutro
+            satisfacao_portfolio = 3
 
         satisfacao_portfolio *= 2
 
         # Capacidade esperada = Validação média do Projeto * 2
-        capacidade = analista.get("Validação média do Projeto", 0) * 2
+        capacidade = 0
+        num_validations = 0
+        for i in range(1, 5):
+            try:
+                val_capacidade = str(
+                    analista.get(f"Validação média do Projeto {i}")
+                ).replace(",", ".")
+                capacidade += float(val_capacidade)
+                num_validations += 1
+            except ValueError:
+                continue
+
+        if num_validations > 0:
+            capacidade = capacidade / num_validations
+        else:
+            capacidade = 3
+
+        capacidade *= 2
 
         # Saúde mental = Média entre percepção da carga e saúde mental na PJ
         # NEUTRO É 5
@@ -885,11 +947,12 @@ if page == "PCP":
             str(analista.get("Como se sente em relação à carga", "")).strip().upper()
         )
         sentimento_map = {"SUBALOCADO": 10, "ESTOU SATISFEITO": 5, "SUPERALOCADO": 1}
-        sentimento_nota = sentimento_map.get(
-            sentimento_carga, 5
-        )  # Se não estiver mapeado, assume 5
-        saude_mental = analista.get("Saúde mental na PJ", 5)
-
+        sentimento_nota = sentimento_map.get(sentimento_carga, 5)
+        try:
+            val_saude = str(analista.get("Saúde mental na PJ", "5")).replace(",", ".")
+            saude_mental = float(val_saude)
+        except ValueError:
+            saude_mental = 5
         saude_final = (sentimento_nota + saude_mental) / 2
 
         # Nota final de afinidade é a média dos três critérios
@@ -919,7 +982,7 @@ if page == "PCP":
         nucleos_map = {
             "nciv": "NCiv",
             "ncon": "NCon",
-            "ndados": "Cópia de NDados",
+            "ndados": "NDados",
             "ni": "NI",
             "ntec": "NTec",
         }
