@@ -812,7 +812,7 @@ if page == "PCP":
 
         # Ajusta conforme cargo no núcleo
         cargo = str(analista.get("Cargo no núcleo", "")).strip().upper()
-        if cargo in ["SDR", "HUNTER", "ANALISTA SÊNIOR"]:
+        if cargo in ["SDR OU HUNTER", "ANALISTA SÊNIOR"]:
             horas_disponiveis -= 10
 
         # Ajusta conforme proximidade da data de fim de um projeto
