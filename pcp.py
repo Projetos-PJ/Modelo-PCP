@@ -359,14 +359,9 @@ def converte_data(df, date_columns):
     for col in date_columns:
         if col in df_copy.columns:
             try:
-                # Converte para string antes de aplicar a conversão para datetime
-                df_copy[col] = df_copy[col].astype(str)
-                pd.set_option("future.no_silent_downcasting", True)
-                result = df_copy[col].replace("nan", np.nan)
-                pd.set_option("future.no_silent_downcasting", False)
-                df_copy[col] = result.infer_objects(copy=False)
+                # Converte para datetime e mantém como datetime (sem converter para string)
                 df_copy[col] = pd.to_datetime(
-                    df_copy[col], errors="coerce", format="%d/%m/%Y"
+                    df_copy[col], format="%d/%m/%Y", errors="coerce"
                 )
             except Exception as e:
                 logging.error(f"Erro ao converter coluna '{col}': {e}")
@@ -379,45 +374,8 @@ if page == "Base Consolidada":
         if st.session_state.nucleo != None:
             df = nucleo_func(st.session_state.nucleo)
 
-            def batch_convert_dates(df, columns, date_format="%d/%m/%Y"):
-                for col in columns:
-                    if col in df.columns:
-                        # Converte para datetime e mantém como datetime (sem converter para string)
-                        df[col] = pd.to_datetime(
-                            df[col], format=date_format, errors="coerce"
-                        )
-                return df
-
-            # Lista de colunas de datas para conversão
-            date_columns_to_convert = [
-                "Início previsto Projeto 1",
-                "Início Real Projeto 1",
-                "Fim previsto do Projeto 1 (sem atraso)",
-                "Fim estimado do Projeto 1 (com atraso)",
-                "Início previsto Projeto 2",
-                "Início Real Projeto 2",
-                "Fim previsto do Projeto 2 (sem atraso)",
-                "Fim estimado do Projeto 2 (com atraso)",
-                "Início Real Projeto 4",
-                "Fim previsto do Projeto 4 (sem atraso)",
-                "Fim estimado do Projeto 4 (com atraso)",
-                "Início previsto Projeto 3",
-                "Início Real Projeto 3",
-                "Fim previsto do Projeto 3 (sem atraso)",
-                "Fim estimado do Projeto 3 (com atraso)",
-                "Início previsto Projeto 4",
-                "Início Real Projeto 4",
-                "Fim previsto do Projeto 4 (sem atraso)",
-                "Fim estimado do Projeto 4 (com atraso)",
-                "Início do Projeto Interno 1",
-                "Fim do Projeto Interno 1",
-                "Início do Projeto Interno 2",
-                "Fim do Projeto Interno 2",
-                "Início do Projeto Interno 3",
-                "Fim do Projeto Interno 3",
-            ]
             # Converte as colunas de data para o formato datetime
-            df = batch_convert_dates(df, date_columns_to_convert)
+            df = converte_data(df, date_columns)
 
             # Definição de filtros em três colunas (cargo, nome, alocação)
             colcargo, colnome, colaloc = st.columns(3)
@@ -429,8 +387,8 @@ if page == "Base Consolidada":
             # Campo para filtrar por nome do membro
             with colnome:
                 nome = st.text_input(
-                    "Nome do Membro",
-                    placeholder="Membro",
+                    "Nome",
+                    placeholder="Nome",
                     value=st.session_state.nome if st.session_state.nome else None,
                     key="nome_input",
                     on_change=update_nome,
@@ -471,6 +429,135 @@ if page == "Base Consolidada":
                 else:
                     st.session_state.aloc = None
 
+            # Verifica se um projeto está ativo (não finalizado)
+            def projeto_ativo(row, col_projeto, col_fim_estimado, col_fim_previsto):
+                if pd.isna(row[col_projeto]):
+                    return False
+
+                fim_estimado = row.get(col_fim_estimado)
+                fim_previsto = row.get(col_fim_previsto)
+                fim_projeto = fim_estimado if pd.notna(fim_estimado) else fim_previsto
+
+                return pd.notna(fim_projeto) and fim_projeto > data_atual
+
+            def apply_filters(df, nome, cargo, aloc):
+                """
+                Aplica os filtros de nome, cargo e alocação ao DataFrame.
+
+                Args:
+                    df (pd.DataFrame): DataFrame a ser filtrado.
+                    nome (str): Nome do membro para filtrar.
+                    cargo (str): Cargo para filtrar.
+                    aloc (list): Lista de alocações para filtrar.
+
+                Returns:
+                    pd.DataFrame: DataFrame filtrado.
+                """
+                if nome:
+                    df = df[
+                        df["Membro"].str.strip().str.lower() == nome.strip().lower()
+                    ]
+                if cargo:
+                    df = df[df["Cargo no núcleo"] == cargo]
+                if aloc:
+                    # Mapeamento de texto para valores numéricos de alocação
+                    opcoes_valor_map = {
+                        "Desalocado": 0,
+                        "1 Alocação": 1,
+                        "2 Alocações": 2,
+                        "3 Alocações": 3,
+                        "4+ Alocações": 4,
+                    }
+
+                    # Data atual para comparar com datas de fim
+                    data_atual = datetime.today()
+
+                    # Conta alocações ativas de cada membro
+                    projeto_cols = []
+                    for i in range(1, 4):  # Projetos 1 a 3
+                        col_projeto = f"Projeto {i}"
+                        col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
+                        col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
+
+                        if col_projeto in df.columns:
+                            projeto_cols.append(
+                                (col_projeto, col_fim_estimado, col_fim_previsto)
+                            )
+
+                    # Inicializa contador de alocações para cada membro
+                    alocacoes = pd.Series(0, index=df.index)
+
+                    # Contabiliza projetos externos ativos
+                    for col_projeto, col_fim_estimado, col_fim_previsto in projeto_cols:
+                        alocacoes += df.apply(
+                            lambda row: (
+                                1
+                                if projeto_ativo(
+                                    row, col_projeto, col_fim_estimado, col_fim_previsto
+                                )
+                                else 0
+                            ),
+                            axis=1,
+                        )
+
+                    # Contabiliza projetos internos ativos
+                    for i in range(1, 3):
+                        col_projeto = f"Projeto Interno {i}"
+                        col_fim = f"Fim do Projeto Interno {i}"
+                        col_inicio = f"Início do Projeto Interno {i}"
+
+                        if col_projeto in df.columns:
+                            if col_fim in df.columns:
+                                # Considera ativo se tem data fim posterior à data atual
+                                alocacoes += df.apply(
+                                    lambda row: (
+                                        1
+                                        if (
+                                            pd.notna(row[col_projeto])
+                                            and pd.notna(row[col_fim])
+                                            and row[col_fim] > data_atual
+                                        )
+                                        else 0
+                                    ),
+                                    axis=1,
+                                )
+                            elif col_inicio in df.columns:
+                                # Se não tem data fim, considera ativo se tem data início
+                                alocacoes += df.apply(
+                                    lambda row: (
+                                        1
+                                        if (
+                                            pd.notna(row[col_projeto])
+                                            and pd.notna(row[col_inicio])
+                                        )
+                                        else 0
+                                    ),
+                                    axis=1,
+                                )
+
+                    # Contabiliza cargos adicionais como alocações
+                    if "Cargo WI" in df.columns:
+                        alocacoes += df["Cargo WI"].notna().astype(int)
+
+                    if "Cargo MKT" in df.columns:
+                        alocacoes += df["Cargo MKT"].notna().astype(int)
+
+                    # Contabiliza atividades de desenvolvimento como alocações
+                    if "N° Aprendizagens" in df.columns:
+                        alocacoes += df["N° Aprendizagens"].fillna(0)
+
+                    if "N° Assessorias" in df.columns:
+                        alocacoes += df["N° Assessorias"].fillna(0)
+
+                    # Limita o número máximo de alocações a 4
+                    alocacoes = alocacoes.clip(upper=4)
+
+                    # Filtra o DataFrame conforme os valores selecionados no filtro
+                    valores_filtro = [opcoes_valor_map[opt] for opt in aloc]
+                    df = df[alocacoes.isin(valores_filtro)]
+
+                return df
+
             # Campo para filtrar por nível de alocação
             with colaloc:
                 # Prepara valores padrão com base no session state
@@ -494,123 +581,7 @@ if page == "Base Consolidada":
                     st.session_state.aloc = aloc[0] if len(aloc) == 1 else None
 
                 # Aplica filtros ao DataFrame
-                if nome:
-                    df = df[
-                        df["Membro"].str.strip().str.lower() == nome.strip().lower()
-                    ]
-                if cargo:
-                    df = df[df["Cargo no núcleo"] == cargo]
-
-            # Processamento adicional se filtro de alocação estiver ativo
-            if aloc:
-                # Mapeamento de texto para valores numéricos de alocação
-                opcoes_valor_map = {
-                    "Desalocado": 0,
-                    "1 Alocação": 1,
-                    "2 Alocações": 2,
-                    "3 Alocações": 3,
-                    "4+ Alocações": 4,
-                }
-
-                # Data atual para comparar com datas de fim
-                data_atual = datetime.today()
-
-                # Verifica se um projeto está ativo (não finalizado)
-                def projeto_ativo(row, col_projeto, col_fim_estimado, col_fim_previsto):
-                    if pd.isna(row[col_projeto]):
-                        return False
-
-                    fim_estimado = row.get(col_fim_estimado)
-                    fim_previsto = row.get(col_fim_previsto)
-                    fim_projeto = (
-                        fim_estimado if pd.notna(fim_estimado) else fim_previsto
-                    )
-
-                    return pd.notna(fim_projeto) and fim_projeto > data_atual
-
-                # Conta alocações ativas de cada membro
-                projeto_cols = []
-                for i in range(1, 4):  # Projetos 1 a 3
-                    col_projeto = f"Projeto {i}"
-                    col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
-                    col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
-
-                    if col_projeto in df.columns:
-                        projeto_cols.append(
-                            (col_projeto, col_fim_estimado, col_fim_previsto)
-                        )
-
-                # Inicializa contador de alocações para cada membro
-                alocacoes = pd.Series(0, index=df.index)
-
-                # Contabiliza projetos externos ativos
-                for col_projeto, col_fim_estimado, col_fim_previsto in projeto_cols:
-                    alocacoes += df.apply(
-                        lambda row: (
-                            1
-                            if projeto_ativo(
-                                row, col_projeto, col_fim_estimado, col_fim_previsto
-                            )
-                            else 0
-                        ),
-                        axis=1,
-                    )
-
-                # Contabiliza projetos internos ativos
-                for i in range(1, 3):
-                    col_projeto = f"Projeto Interno {i}"
-                    col_fim = f"Fim do Projeto Interno {i}"
-                    col_inicio = f"Início do Projeto Interno {i}"
-
-                    if col_projeto in df.columns:
-                        if col_fim in df.columns:
-                            # Considera ativo se tem data fim posterior à data atual
-                            alocacoes += df.apply(
-                                lambda row: (
-                                    1
-                                    if (
-                                        pd.notna(row[col_projeto])
-                                        and pd.notna(row[col_fim])
-                                        and row[col_fim] > data_atual
-                                    )
-                                    else 0
-                                ),
-                                axis=1,
-                            )
-                        elif col_inicio in df.columns:
-                            # Se não tem data fim, considera ativo se tem data início
-                            alocacoes += df.apply(
-                                lambda row: (
-                                    1
-                                    if (
-                                        pd.notna(row[col_projeto])
-                                        and pd.notna(row[col_inicio])
-                                    )
-                                    else 0
-                                ),
-                                axis=1,
-                            )
-
-                # Contabiliza cargos adicionais como alocações
-                if "Cargo WI" in df.columns:
-                    alocacoes += df["Cargo WI"].notna().astype(int)
-
-                if "Cargo MKT" in df.columns:
-                    alocacoes += df["Cargo MKT"].notna().astype(int)
-
-                # Contabiliza atividades de desenvolvimento como alocações
-                if "N° Aprendizagens" in df.columns:
-                    alocacoes += df["N° Aprendizagens"].fillna(0)
-
-                if "N° Assessorias" in df.columns:
-                    alocacoes += df["N° Assessorias"].fillna(0)
-
-                # Limita o número máximo de alocações a 4
-                alocacoes = alocacoes.clip(upper=4)
-
-                # Filtra o DataFrame conforme os valores selecionados no filtro
-                valores_filtro = [opcoes_valor_map[opt] for opt in aloc]
-                df = df[alocacoes.isin(valores_filtro)]
+                df = apply_filters(df, nome, cargo, aloc)
 
                 if df.empty:
                     st.write("Sem informações para os dados filtrados")
