@@ -7,6 +7,18 @@ import plotly.graph_objects as go
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+# Lê o segredo como dicionário
+service_account_info = st.secrets["gcp_service_account"]
+
+# Cria credenciais a partir do dicionário
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(
+    dict(service_account_info),
+    scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"],
+)
+
+# Autentica no Google Sheets
+gc = gspread.authorize(credentials)
+
 st.set_page_config(
     page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded"
 )
