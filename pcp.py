@@ -1086,7 +1086,7 @@ if page == "PCP":
         st.session_state.escopo_selecionado = escopo
 
     with col_analista:
-        analistas = sorted(df["Membro"].astype(str).unique().tolist(), key=str.lower)
+        analistas = sorted(df["Membro"].astype(str).unique().tolist().dropna(), key=str.lower)
 
         # Usando o multiselect
         analistas_selecionados = st.multiselect(
