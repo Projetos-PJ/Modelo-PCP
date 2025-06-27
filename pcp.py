@@ -182,7 +182,11 @@ def load_from_gsheets():
                 headers = data[0]
                 values = data[1:]
 
+<<<<<<< HEAD
                 # Filter out "Email PJ" column for privacy/security if it exists
+=======
+                # Filter out "Email PJ" column
+>>>>>>> eb41152b774e7b6a38174dda7d4eda878fa22b89
                 if "Email PJ" in headers:
                     email_index = headers.index("Email PJ")
                     headers = [h for i, h in enumerate(headers) if i != email_index]
