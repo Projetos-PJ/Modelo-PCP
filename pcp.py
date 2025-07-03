@@ -274,6 +274,7 @@ def nucleo_func(nucleo_digitado):
 
     # Drop columns that are completely empty (all NaN/None)
     df = df.dropna(axis=1, how="all")
+    df = df.dropna(subset=[df.columns[0]])
 
     # Identify and drop columns that contain only empty strings or 'None'/'none' strings
     cols_to_drop = []
