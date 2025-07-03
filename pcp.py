@@ -917,6 +917,9 @@ if page == "PCP":
                     horas_disponiveis -= 4
                 elif days_left <= 7:
                     horas_disponiveis -= 1
+            else:
+                # Se não houver data de fim, assume que o projeto está ativo
+                horas_disponiveis -= 10
 
         return horas_disponiveis
 
