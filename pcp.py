@@ -469,7 +469,7 @@ if page == "Base Consolidada":
                 # Filtragem dos dados
                 if nome:
                     df = df[
-                        df["Membro"].str.strip().str.lower() == nome.strip().lower()
+                        df["Membro"].dropna().str.strip().str.lower() == nome.strip().lower()
                     ]
                 if cargo:
                     df = df[df["Cargo no núcleo"] == cargo]
