@@ -288,10 +288,27 @@ def calcular_contagem_alocacoes(df_para_calcular):
     for i in range(1, 5):
         col_projeto = f"Projeto {i}"
         if col_projeto in df_para_calcular.columns:
-            fim_estimado = pd.to_datetime(df_para_calcular.get(f"Fim estimado do Projeto {i} (com atraso)"), errors='coerce')
-            fim_previsto = pd.to_datetime(df_para_calcular.get(f"Fim previsto do Projeto {i} (sem atraso)"), errors='coerce')
-            fim_final = fim_estimado.fillna(fim_previsto)
             
+            # --- INÍCIO DA CORREÇÃO ---
+            col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
+            col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
+
+            # Verifica se a coluna de fim estimado existe. Se não, cria uma série vazia (com NaT).
+            if col_fim_estimado in df_para_calcular.columns:
+                fim_estimado = pd.to_datetime(df_para_calcular[col_fim_estimado], errors='coerce')
+            else:
+                fim_estimado = pd.Series(pd.NaT, index=df_para_calcular.index)
+
+            # Faz o mesmo para a coluna de fim previsto.
+            if col_fim_previsto in df_para_calcular.columns:
+                fim_previsto = pd.to_datetime(df_para_calcular[col_fim_previsto], errors='coerce')
+            else:
+                fim_previsto = pd.Series(pd.NaT, index=df_para_calcular.index)
+
+            # Agora, fim_estimado e fim_previsto são SEMPRE Series, e o .fillna() funcionará.
+            fim_final = fim_estimado.fillna(fim_previsto)
+            # --- FIM DA CORREÇÃO ---
+
             condicao_ativo = df_para_calcular[col_projeto].notna() & ((fim_final.isna()) | (fim_final > data_atual))
             contagem += condicao_ativo.astype(int)
 
