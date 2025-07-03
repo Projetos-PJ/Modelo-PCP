@@ -279,6 +279,29 @@ def converte_data(df, date_cols):
             df_copy[col] = pd.to_datetime(df_copy[col], errors="coerce", format="%d/%m/%Y")
     return df_copy
 
+def calcular_contagem_alocacoes(df_para_calcular):
+    """Calcula o número de projetos e atividades para cada membro."""
+    contagem = pd.Series(0, index=df_para_calcular.index)
+    data_atual = pd.Timestamp.now()
+
+    # 1. Conta projetos externos ativos
+    for i in range(1, 5):
+        col_projeto = f"Projeto {i}"
+        if col_projeto in df_para_calcular.columns:
+            fim_estimado = pd.to_datetime(df_para_calcular.get(f"Fim estimado do Projeto {i} (com atraso)"), errors='coerce')
+            fim_previsto = pd.to_datetime(df_para_calcular.get(f"Fim previsto do Projeto {i} (sem atraso)"), errors='coerce')
+            fim_final = fim_estimado.fillna(fim_previsto)
+            
+            condicao_ativo = df_para_calcular[col_projeto].notna() & ((fim_final.isna()) | (fim_final > data_atual))
+            contagem += condicao_ativo.astype(int)
+
+    # 2. Adiciona outras atividades que contam como alocação
+    for col in ["Projeto Interno 1", "Projeto Interno 2", "Projeto Interno 3", "Cargo WI", "Cargo MKT", "N° Aprendizagens", "N° Assessorias"]:
+        if col in df_para_calcular.columns:
+            contagem += df_para_calcular[col].notna().astype(int)
+            
+    return contagem
+
 
 # ==============================================================================
 # 5. INTERFACE DO USUÁRIO (FRONTEND)
@@ -316,13 +339,24 @@ if page == "Base Consolidada":
             colcargo, colnome, colaloc = st.columns(3)
             nome = colnome.text_input("Nome do Membro", key="nome_input_base")
             cargo = colcargo.text_input("Cargo", key="cargo_input_base")
-            # (Lógica de filtro de alocação pode ser adicionada aqui se necessário)
-
+            alocações = colaloc.selectbox("Filtrar por Alocações", options=["Desalocado", "1 Alocação", "2 Alocações", "3 Alocações", "4+ Alocações"], key="aloc_input_base")
+            
             # --- Aplicação dos Filtros ---
             if nome:
                 df = df[df["Membro"].str.strip().str.lower() == nome.strip().lower()]
             if cargo:
                 df = df[df["Cargo no núcleo"].str.strip().str.lower() == cargo.strip().lower()]
+
+            if alocações == "Desalocado":
+                df = df[df['Contagem_Alocacoes'] == 0]
+            elif alocações == "1 Alocação":
+                df = df[df['Contagem_Alocacoes'] == 1]
+            elif alocações == "2 Alocações":
+                df = df[df['Contagem_Alocacoes'] == 2]
+            elif alocações == "3 Alocações":
+                df = df[df['Contagem_Alocacoes'] == 3]
+            elif alocações == "4+ Alocações":
+                df = df[df['Contagem_Alocacoes'] >= 4]
 
             # --- Exibição dos Dados ---
             if df.empty:
