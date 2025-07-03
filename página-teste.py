@@ -341,6 +341,8 @@ if page == "Base Consolidada":
             cargo = colcargo.text_input("Cargo", key="cargo_input_base")
             alocações = colaloc.selectbox("Filtrar por Alocações", options=["Desalocado", "1 Alocação", "2 Alocações", "3 Alocações", "4+ Alocações"], key="aloc_input_base")
             
+            df['Contagem_Alocacoes'] = calcular_contagem_alocacoes(df)
+
             # --- Aplicação dos Filtros ---
             if nome:
                 df = df[df["Membro"].str.strip().str.lower() == nome.strip().lower()]
