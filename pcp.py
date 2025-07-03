@@ -195,6 +195,16 @@ def load_from_gsheets():
                 # Create DataFrame
                 pcp_df = pd.DataFrame(values, columns=headers)
 
+                # --- INÍCIO DA ALTERAÇÃO ---
+                # Garante que a coluna 'Membro' exista antes de tentar limpá-la
+                if 'Membro' in pcp_df.columns:
+                    # Substitui textos vazios por um valor nulo que o pandas entende (NaN)
+                    pcp_df['Membro'].replace(['', 'None', '-'], np.nan, inplace=True)
+                    
+                    # Apaga as linhas onde a coluna 'Membro' é nula
+                    pcp_df.dropna(subset=['Membro'], inplace=True)
+                # --- FIM DA ALTERAÇÃO ---
+
                 # Process date columns
                 for date_col in date_columns:
                     if date_col in pcp_df.columns:
