@@ -471,7 +471,7 @@ if page == "Base Consolidada":
                     df = df[
                         df["Membro"].str.strip().str.lower() == nome.strip().lower()
                     ]
-                    df = df[df.fillna(False)]
+                    df = df.dropna()
                 if cargo:
                     df = df[df["Cargo no núcleo"] == cargo]
 
