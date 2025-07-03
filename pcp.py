@@ -469,8 +469,9 @@ if page == "Base Consolidada":
                 # Filtragem dos dados
                 if nome:
                     df = df[
-                        df["Membro"].dropna().str.strip().str.lower() == nome.dropna().strip().lower()
+                        df["Membro"].str.strip().str.lower() == nome.strip().lower()
                     ]
+                    df = df[df.fillna(False)]
                 if cargo:
                     df = df[df["Cargo no núcleo"] == cargo]
 
@@ -1086,7 +1087,7 @@ if page == "PCP":
         st.session_state.escopo_selecionado = escopo
 
     with col_analista:
-        analistas = sorted(df["Membro"].dropna().astype(str).unique().tolist(), key=str.lower)
+        analistas = sorted(df["Membro"].astype(str).unique().tolist(), key=str.lower)
 
         # Usando o multiselect
         analistas_selecionados = st.multiselect(
