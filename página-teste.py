@@ -1,340 +1,404 @@
 # ==============================================================================
-# 1. IMPORTAÇÕES DE BIBLIOTECAS
+# 1. IMPORTAÇÕES E CONFIGURAÇÕES INICIAIS
 # ==============================================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import logging
 from datetime import datetime
-import plotly.graph_objects as go
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import plotly.graph_objects as go
+
+# --- Configuração da Página e Logging ---
+st.set_page_config(page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 # ==============================================================================
-# 2. CONFIGURAÇÕES GLOBAIS E ESTILO DA PÁGINA
+# 2. CONSTANTES E ESTILOS GLOBAIS
 # ==============================================================================
 
-# --- Configuração da Página do Streamlit ---
-st.set_page_config(
-    page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded"
-)
-
-# --- Configuração do Sistema de Logging ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-# --- Variáveis Globais e Constantes ---
+# --- Constantes da Interface ---
 CARGOS_EXCLUIDOS = [
-    "Líder de Outbound",
-    "Coordenador de Negócios",
-    "Coordenador de Inovação Comercial",
-    "Gerente Comercial",
-    "Coordenador de Projetos",
-    "Coordenador de Inovação de Projetos",
+    "Liderança de Outbound", "Coordenador de Negócios", "Coordenador de Inovação Comercial",
+    "Gerente Comercial", "Coordenador de Projetos", "Coordenador de Inovação de Projetos",
     "Gerente de Projetos",
 ]
 
 DATE_COLUMNS = [
-    "Início Real Projeto 1", "Fim previsto do Projeto 1 (sem atraso)", "Fim estimado do Projeto 1 (com atraso)",
-    "Início Real Projeto 2", "Fim previsto do Projeto 2 (sem atraso)", "Fim estimado do Projeto 2 (com atraso)",
-    "Início Real Projeto 3", "Fim previsto do Projeto 3 (sem atraso)", "Fim estimado do Projeto 3 (com atraso)",
-    "Início Real Projeto 4", "Fim previsto do Projeto 4 (sem atraso)", "Fim estimado do Projeto 4 (com atraso)",
-    "Início do Projeto Interno 1", "Fim do Projeto Interno 1",
-    "Início do Projeto Interno 2", "Fim do Projeto Interno 2",
+    "Início previsto Projeto 1", "Início Real Projeto 1", "Fim previsto do Projeto 1 (sem atraso)", "Fim estimado do Projeto 1 (com atraso)",
+    "Início previsto Projeto 2", "Início Real Projeto 2", "Fim previsto do Projeto 2 (sem atraso)", "Fim estimado do Projeto 2 (com atraso)",
+    "Início previsto Projeto 3", "Início Real Projeto 3", "Fim previsto do Projeto 3 (sem atraso)", "Fim estimado do Projeto 3 (com atraso)",
+    "Início previsto Projeto 4", "Início Real Projeto 4", "Fim previsto do Projeto 4 (sem atraso)", "Fim estimado do Projeto 4 (com atraso)",
+    "Início do Projeto Interno 1", "Fim do Projeto Interno 1", "Início do Projeto Interno 2", "Fim do Projeto Interno 2",
     "Início do Projeto Interno 3", "Fim do Projeto Interno 3",
 ]
 
+nucleo_cores = {"NCiv": ("#cd9a0f", "#e0d19b"),
+    "NCon": ("#0db54b", "#91cfa7"),
+    "NDados": ("#7419BE", "#c19be0"),
+    "NI": ("#c91616", "#c26868"),
+    "NTec": ("#1117c3", "#7477bf")}
+
 # --- Estilo CSS Customizado ---
-st.markdown(
-    """
+st.markdown("""
     <style>
-    * {
-        font-family: 'Poppins', sans-serif !important;
-    }
-    /* Estilo para a barra de cabeçalho superior */
-    .st-emotion-cache-ttupiz {
-        position: fixed;
-        top: 0px;
-        left: 0px;
-        right: 0px;
-        height: 4.5rem;
-        background: #064381;
-        outline: none;
-        z-index: 999990;
-        display: block;
-    }
-    /* Estilo para as linhas divisórias */
-    hr {
-        border: 0;
-        background-color: #064381;
-        height: 2px;
-    }
-    hr:not([size]) {
-        height: 2px;
-    }
-    .st-emotion-cache-10d29ip hr {
-        background-color: #064381;
-        border-bottom: 2px solid #064381;
-    }
-    /* Oculta o menu padrão e o rodapé do Streamlit */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+        * { font-family: 'Poppins', sans-serif !important; }
+        .st-emotion-cache-ttupiz { background: #064381; }
+        hr { border: 0; background-color: #064381; height: 2px; }
+        #MainMenu, footer { visibility: hidden; }
     </style>
-    <div class="fullscreen-div"></div>
-    """,
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 
 # ==============================================================================
-# 3. CARREGAMENTO E PREPARAÇÃO DE DADOS (BACKEND)
+# 3. CARREGAMENTO E CACHE DE DADOS (BACKEND)
 # ==============================================================================
 
-@st.cache_data(ttl=86400)  # Cache expira em 1 dia (86400 segundos)
-def load_pcp_data():
-    """Função principal que tenta carregar os dados do Google Sheets."""
+@st.cache_data(ttl=86400)  # Cache de 1 dia
+def load_data_from_source():
+    """Função principal que carrega e processa os dados da fonte (Google Sheets)."""
     try:
-        return load_from_gsheets()
-    except Exception as e:
-        st.warning(f"Falha ao carregar do Google Sheets: {e}. Verifique a conexão e as credenciais.")
-        st.exit()
-
-
-def load_from_gsheets():
-    """Conecta ao Google Sheets, baixa e pré-processa os dados de cada aba."""
-    try:
-        # --- Autenticação com Google Sheets API ---
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_info = st.secrets["gcp_service_account"]
         credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(credentials)
+        planilha = client.open("PCP Auto")
+        
+        abas = ["NDados", "NTec", "NCiv", "NI", "NCon"]
+        todas_abas = {}
 
-        # --- Conexão com a Planilha ---
-        spreadsheet = client.open("PCP Auto")
-        sheet_names = ["NDados", "NTec", "NCiv", "NI", "NCon"]
-        all_sheets = {}
-
-        # --- Processamento de Cada Aba ---
-        for sheet_name in sheet_names:
+        for aba in abas:
             try:
-                worksheet = spreadsheet.worksheet(sheet_name)
-                data = worksheet.get_all_values()
-
+                aba_aberta = planilha.worksheet(aba)
+                data = aba_aberta.get_all_values()
                 if not data:
-                    logging.warning(f"Nenhum dado encontrado na planilha: {sheet_name}")
-                    all_sheets[sheet_name] = pd.DataFrame()
+                    todas_abas[aba] = pd.DataFrame()
                     continue
 
                 headers = data[0]
                 values = data[1:]
 
-                # Remove a coluna "Email PJ" por segurança, se existir
-                if "Email PJ" in headers:
-                    email_index = headers.index("Email PJ")
-                    headers = [h for i, h in enumerate(headers) if i != email_index]
-                    values = [[v for i, v in enumerate(row) if i != email_index] for row in values]
-
                 pcp_df = pd.DataFrame(values, columns=headers)
-
-                # LIMPEZA INICIAL: Remove linhas sem um membro definido
+                pcp_df.replace('', np.nan, inplace=True)
+                
+                # Limpeza primária dos dados
                 if 'Membro' in pcp_df.columns:
-                    pcp_df['Membro'].replace(['', 'None', '-'], np.nan, inplace=True)
                     pcp_df.dropna(subset=['Membro'], inplace=True)
-
-                # Converte colunas de data para o formato correto
-                for date_col in DATE_COLUMNS:
-                    if date_col in pcp_df.columns:
-                        pcp_df[date_col] = pd.to_datetime(pcp_df[date_col], format="%d/%m/%Y", errors="coerce").dt.strftime("%d/%m/%Y")
-
-                # Remove cargos de liderança que não devem aparecer na análise
                 if "Cargo no núcleo" in pcp_df.columns:
                     pcp_df = pcp_df[~pcp_df["Cargo no núcleo"].isin(CARGOS_EXCLUIDOS)]
 
-                all_sheets[sheet_name] = pcp_df
+                # Conversão de tipos de dados (Datas e Números)
+                for date_col in DATE_COLUMNS:
+                    if date_col in pcp_df.columns:
+                        pcp_df[date_col] = pd.to_datetime(pcp_df[date_col], format="%d/%m/%Y", errors='coerce')
+                
+                todas_abas[aba] = pcp_df
 
-            except gspread.exceptions.WorksheetNotFound:
-                st.warning(f"Aba '{sheet_name}' não encontrada no documento.")
-                all_sheets[sheet_name] = pd.DataFrame()
             except Exception as e:
-                st.warning(f"Erro ao carregar a aba '{sheet_name}': {str(e)}")
-                logging.error(f"Erro detalhado na aba '{sheet_name}': {str(e)}", exc_info=True)
-                all_sheets[sheet_name] = pd.DataFrame()
-
-        return all_sheets
-
+                logging.error(f"Erro ao processar aba '{aba}': {e}", exc_info=True)
+                todas_abas[aba] = pd.DataFrame()
+        return todas_abas
+        
     except Exception as e:
-        logging.error(f"Erro ao conectar com Google Sheets: {str(e)}", exc_info=True)
-        st.error(f"Erro fatal ao conectar com Google Sheets: {str(e)}", icon="🚨")
+        logging.error(f"Erro fatal ao conectar ou carregar dados: {e}", exc_info=True)
+        st.error("Erro fatal de conexão. Verifique as credenciais e a API do Google Sheets.", icon="🚨")
         st.stop()
 
 
 # ==============================================================================
-# 4. FUNÇÕES DE LÓGICA DE NEGÓCIO (BACKEND)
+# 4. FUNÇÕES DE LÓGICA (BACKEND)
 # ==============================================================================
 
-def nucleo_func(nucleo_digitado):
-    """Retorna o DataFrame de um núcleo específico, já limpo."""
-    nucleo_digitado = nucleo_digitado.replace(" ", "").lower()
-    nucleos_map = {"nciv": "NCiv", "ncon": "NCon", "ndados": "NDados", "ni": "NI", "ntec": "NTec"}
-
-    if "pcp" not in st.session_state:
-        st.session_state.pcp = load_pcp_data()
-
-    sheet_name = nucleos_map.get(nucleo_digitado)
-    if not sheet_name or sheet_name not in st.session_state.pcp:
-        return None
-
-    df = st.session_state.pcp[sheet_name].copy()
+def escolher_nucleo(nucleo):
+    """Filtra e retorna o DataFrame para o núcleo selecionado."""
+    correção_nucleo = {"nciv": "NCiv", "ncon": "NCon", "ndados": "NDados", "ni": "NI", "ntec": "NTec"}
+    aba = correção_nucleo.get(nucleo.lower(), nucleo)
     
-    # Limpeza final do DataFrame específico do núcleo
-    df.replace(["None", "-", ""], np.nan, inplace=True)
-    df.dropna(axis=1, how="all", inplace=True) # Remove colunas totalmente vazias
-    df.dropna(subset=[df.columns[0]], inplace=True) # Garante que a primeira coluna não seja nula
+    if "pcp_data" not in st.session_state:
+        st.session_state.pcp_data = load_data_from_source()
+        
+    df = st.session_state.pcp_data.get(aba)
+    if df is None or df.empty:
+        return pd.DataFrame()
+    
+    # Remove colunas que estejam totalmente vazias
+    return df.dropna(axis=1, how='all').copy()
 
-    return df
+def calculo_disponibilidade(df, inicio_novo_projeto):
+    """ Calcula as horas de disponibilidade para cada membro (versão vetorizada e segura). """
+    horas = pd.Series(30.0, index=df.index)
+    inicio_novo_projeto = pd.to_datetime(inicio_novo_projeto) # Garante que a data seja do tipo correto
 
+    # --- Descontos por atividades numéricas (Acesso Seguro) ---
+    if "N° Aprendizagens" in df:
+        horas -= pd.to_numeric(df["N° Aprendizagens"], errors='coerce').fillna(0) * 5
+    if "N° Assessorias" in df:
+        horas -= pd.to_numeric(df["N° Assessorias"], errors='coerce').fillna(0) * 10
 
-def calcular_disponibilidade(analista, inicio_novo_projeto):
-    """Calcula as horas de disponibilidade de um analista."""
-    horas_disponiveis = 30.0
-
-    # Descontos fixos por atividades
-    try:
-        n_aprendizagens = pd.to_numeric(analista.get("N° Aprendizagens", 0), errors='coerce')
-        horas_disponiveis -= n_aprendizagens * 5
-    except (ValueError, TypeError): pass
-
-    try:
-        n_assessorias = pd.to_numeric(analista.get("N° Assessorias", 0), errors='coerce')
-        horas_disponiveis -= n_assessorias * 10
-    except (ValueError, TypeError): pass
-
+    # --- Descontos por projetos internos e cargos (Acesso Seguro) ---
     for i in range(1, 5):
-        if pd.notnull(analista.get(f"Início do Projeto Interno {i}")):
-            horas_disponiveis -= 5
-
-    if str(analista.get("Cargo no núcleo", "")).strip().upper() in ["SDR OU HUNTER", "ANALISTA SÊNIOR"]:
-        horas_disponiveis -= 10
-
-    # Desconto variável por projetos externos
-    for i in range(1, 5):
-        fim_estimado = analista.get(f"Fim estimado do Projeto {i} (com atraso)")
-        fim_previsto = analista.get(f"Fim previsto do Projeto {i} (sem atraso)")
-        fim_projeto = fim_estimado if pd.notnull(fim_estimado) else fim_previsto
-
-        if pd.notnull(fim_projeto):
-            days_left = (fim_projeto - inicio_novo_projeto).days
-            if days_left > 14:
-                horas_disponiveis -= 10
-            elif 7 < days_left <= 14:
-                horas_disponiveis -= 4
-            elif days_left <= 7:
-                horas_disponiveis -= 1
-        else:
-            # Se o projeto existe mas não tem data de fim, desconta 10h
-            if pd.notnull(analista.get(f"Projeto {i}")):
-                horas_disponiveis -= 10
-
-    return horas_disponiveis
-
-
-def calcular_afinidade(analista, escopo_selecionado):
-    """Calcula a nota de afinidade de um analista com um projeto."""
-    # Critério 1: Satisfação com o Portfólio
-    satisfacao_col = f"Satisfação com o Portfólio: {escopo_selecionado}"
-    satisfacao_portfolio = 3.0 # Valor padrão
-    if satisfacao_col in analista and pd.notna(analista[satisfacao_col]):
-        try:
-            satisfacao_portfolio = float(str(analista[satisfacao_col]).replace(",", "."))
-        except (ValueError, TypeError): pass
-    satisfacao_portfolio *= 2
-
-    # Critério 2: Capacidade Técnica (Validação média)
-    capacidade_vals = []
-    for i in range(1, 5):
-        try:
-            val = float(str(analista.get(f"Validação média do Projeto {i}")).replace(",", "."))
-            capacidade_vals.append(val)
-        except (ValueError, TypeError, AttributeError): continue
-    capacidade = np.mean(capacidade_vals) if capacidade_vals else 3.0
-    capacidade *= 2
-
-    # Critério 3: Saúde Mental
-    sentimento_map = {"SUBALOCADO": 10, "ESTOU SATISFEITO": 5, "SUPERALOCADO": 1}
-    sentimento_nota = sentimento_map.get(str(analista.get("Como se sente em relação à carga", "")).strip().upper(), 5)
-    try:
-        saude_mental = float(str(analista.get("Saúde mental na PJ", "5")).replace(",", "."))
-    except (ValueError, TypeError): saude_mental = 5.0
-    saude_final = (sentimento_nota + saude_mental) / 2
-
-    return (satisfacao_portfolio + capacidade + saude_final) / 3
-
-
-def converte_data(df, date_cols):
-    """Converte múltiplas colunas de um DataFrame para o tipo datetime."""
-    df_copy = df.copy()
-    for col in date_cols:
-        if col in df_copy.columns:
-            df_copy[col] = pd.to_datetime(df_copy[col], errors="coerce", format="%d/%m/%Y")
-    return df_copy
-
-def calcular_contagem_alocacoes(df_para_calcular):
-    """Calcula o número de projetos e atividades para cada membro."""
-    contagem = pd.Series(0, index=df_para_calcular.index)
-    data_atual = pd.Timestamp.now()
-
-    # 1. Conta projetos externos ativos
+        col_interno = f"Início do Projeto Interno {i}"
+        if col_interno in df.columns:
+            horas -= np.where(df[col_interno].notna(), 5, 0)
+    
+    cargos_especiais = ["SDR", "Hunter", "Analista Sênior", "Liderança de Chapter", "Product Manager"]
+    if "Cargo no núcleo" in df.columns:
+        # .str acessores são seguros contra valores nulos (NaN)
+        is_special_role = df["Cargo no núcleo"].str.strip().str.upper().isin(cargos_especiais)
+        horas -= np.where(is_special_role.fillna(False), 10, 0)
+        
+    # --- Descontos por projetos externos (Acesso Seguro) ---
     for i in range(1, 5):
         col_projeto = f"Projeto {i}"
-        if col_projeto in df_para_calcular.columns:
-            
-            # --- INÍCIO DA CORREÇÃO ---
+        if col_projeto in df.columns:
             col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
             col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
 
-            # Verifica se a coluna de fim estimado existe. Se não, cria uma série vazia (com NaT).
-            if col_fim_estimado in df_para_calcular.columns:
-                fim_estimado = pd.to_datetime(df_para_calcular[col_fim_estimado], errors='coerce')
-            else:
-                fim_estimado = pd.Series(pd.NaT, index=df_para_calcular.index)
-
-            # Faz o mesmo para a coluna de fim previsto.
-            if col_fim_previsto in df_para_calcular.columns:
-                fim_previsto = pd.to_datetime(df_para_calcular[col_fim_previsto], errors='coerce')
-            else:
-                fim_previsto = pd.Series(pd.NaT, index=df_para_calcular.index)
-
-            # Agora, fim_estimado e fim_previsto são SEMPRE Series, e o .fillna() funcionará.
-            fim_final = fim_estimado.fillna(fim_previsto)
-            # --- FIM DA CORREÇÃO ---
-
-            condicao_ativo = df_para_calcular[col_projeto].notna() & ((fim_final.isna()) | (fim_final > data_atual))
-            contagem += condicao_ativo.astype(int)
-
-    # 2. Adiciona outras atividades que contam como alocação
-    for col in ["Projeto Interno 1", "Projeto Interno 2", "Projeto Interno 3", "Cargo WI", "Cargo MKT", "N° Aprendizagens", "N° Assessorias"]:
-        if col in df_para_calcular.columns:
-            contagem += df_para_calcular[col].notna().astype(int)
+            # Acessa a coluna de data apenas se ela existir, senão cria uma série vazia.
+            fim_estimado = df[col_fim_estimado] if col_fim_estimado in df else pd.Series(pd.NaT, index=df.index)
+            fim_previsto = df[col_fim_previsto] if col_fim_previsto in df else pd.Series(pd.NaT, index=df.index)
             
-    return contagem
+            # Agora a operação .fillna() é 100% segura.
+            fim_final = fim_estimado.fillna(fim_previsto)
+            
+            # Lógica de desconto baseada na data de fim
+            data_final_existe = fim_final.notna()
+            dias_restantes = (fim_final - inicio_novo_projeto).dt.days
+            
+            desconto_com_data = np.select(
+                [dias_restantes > 14, (dias_restantes > 7) & (dias_restantes <= 14), dias_restantes <= 7],
+                [10, 4, 1],
+                default=0
+            )
+            horas -= np.where(data_final_existe, desconto_com_data, 0)
+            
+            # Lógica para projeto que existe mas não tem data de fim
+            sem_data_final = df[col_projeto].notna() & fim_final.isna()
+            horas -= np.where(sem_data_final, 10, 0)
+            
+    return horas
+
+def calculo_afinidade(df, portfolio):
+    """Calcula a nota de afinidade para cada membro (versão vetorizada e segura)."""
+
+    # --- Critério 1: Satisfação com o Portfólio (Acesso Seguro) ---
+    col_satisfacao = f"Satisfação com o Portfólio: {portfolio}"
+    if col_satisfacao in df:
+        # Se a coluna existir, calcula a satisfação a partir dela
+        satisfacao = pd.to_numeric(df[col_satisfacao], errors='coerce').fillna(3.0) * 2
+    else:
+        # Se não existir, atribui um valor padrão para todos os membros
+        satisfacao = pd.Series(6.0, index=df.index)  # (Valor padrão 3.0 * 2)
+
+    # --- Critério 2: Capacidade Técnica (Lógica já era segura) ---
+    col_capacidade = [f"Validação média do Projeto {i}" for i in range(1, 5) if f"Validação média do Projeto {i}" in df.columns]
+    if col_capacidade:
+        capacidade = df[col_capacidade].apply(pd.to_numeric, errors='coerce').mean(axis=1).fillna(3.0) * 2
+    else:
+        # Se nenhuma coluna de validação existir, atribui um valor padrão
+        capacidade = pd.Series(6.0, index=df.index)
+
+    # --- Critério 3: Saúde Mental (Acesso Seguro) ---
+    # Sentimento em relação à carga
+    if "Como se sente em relação à carga" in df:
+        sentimento_map = {"SUBALOCADO": 10, "ESTOU SATISFEITO": 5, "SUPERALOCADO": 1}
+        pontuacao_sentimento = df["Como se sente em relação à carga"].str.strip().str.upper().map(sentimento_map).fillna(5)
+    else:
+        pontuacao_sentimento = pd.Series(5.0, index=df.index)
+        
+    # Saúde mental na PJ
+    if "Saúde mental na PJ" in df:
+        saude_mental = pd.to_numeric(df["Saúde mental na PJ"], errors='coerce').fillna(5.0)
+    else:
+        saude_mental = pd.Series(5.0, index=df.index)
+
+    saude_mental_final = (pontuacao_sentimento + saude_mental) / 2
+    
+    # --- Cálculo Final da Afinidade ---
+    return (satisfacao + capacidade + saude_mental_final) / 3
+
+def calculo_alocacoes(df):
+    """Calcula o número total de alocações para cada membro (versão segura e corrigida)."""
+    # Inicializa a série de contagem
+    conta = pd.Series(0, index=df.index, dtype=int)
+    data_atual = pd.Timestamp.now()
+
+    # --- 1. Contagem de projetos externos ---
+    for i in range(1, 5):
+        col_projeto = f"Projeto {i}"
+        if col_projeto in df.columns:
+            
+            # --- LÓGICA SEGURA CONTRA COLUNAS AUSENTES ---
+            col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
+            col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
+
+            # Acessa a coluna de data apenas se ela existir, senão considera como vazia (NaT)
+            fim_estimado = df[col_fim_estimado] if col_fim_estimado in df else pd.Series(pd.NaT, index=df.index)
+            fim_previsto = df[col_fim_previsto] if col_fim_previsto in df else pd.Series(pd.NaT, index=df.index)
+            
+            # Agora a operação .fillna() é 100% segura
+            fim_final = fim_estimado.fillna(fim_previsto)
+            
+            # Condição de projeto ativo
+            ativo = df[col_projeto].notna() & ((fim_final.isna()) | (fim_final > data_atual))
+            conta += ativo.astype(int)
+
+    # --- 2. Contagem de atividades que valem 1 cada (flags) ---
+    atividades_simples = ["Projeto Interno 1", "Projeto Interno 2", "Projeto Interno 3", "Cargo WI", "Cargo MKT"]
+    for col in atividades_simples:
+        if col in df.columns:
+            conta += df[col].notna().astype(int)
+
+    # --- 3. Soma dos valores das células para atividades numéricas ---
+    atividades_numericas = ["N° Aprendizagens", "N° Assessorias"]
+    for col in atividades_numericas:
+        if col in df.columns:
+            valores_numericos = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            conta += valores_numericos.astype(int)
+
+    # --- 4. Contagem de cargos ---
+    for col in df.columns:
+        if col in df.columns and col.startswith("Cargo no núcleo"):
+            # Verifica se o cargo é do comercial
+            if df[col].str.contains("Comercial", case=False, na=False).any():
+                conta += df[col].notna().astype(int)
+
+    return conta
+
+def sincronizar_pesos():
+    """Verifica qual caixa foi alterada e ajusta a outra."""
+    # Identifica qual caixa de número acionou a mudança
+    caixa_peso = st.session_state.get('changed_input')
+    
+    # Arredonda para evitar problemas com ponto flutuante (ex: 0.299999)
+    if caixa_peso == 'disp':
+        st.session_state.peso_afin = round(1.0 - st.session_state.peso_disp, 2)
+    elif caixa_peso == 'afin':
+        st.session_state.peso_disp = round(1.0 - st.session_state.peso_afin, 2)
+
+def exibir_gantt_membro(df_membro, nucleo_selecionado, cores_por_nucleo):
+    """Gera e exibe um gráfico de Gantt para as alocações de um único membro, usando as cores do núcleo selecionado."""
+    if df_membro.empty or len(df_membro) > 1:
+        st.warning("Selecione um único membro para ver o gráfico de alocações.")
+        return
+
+    # Busca as cores para o núcleo atual ou usa um padrão se não encontrar
+    cores_atuais = cores_por_nucleo.get(nucleo_selecionado, ("#064381", "#decda9"))
+    cor_principal_grafico = cores_atuais[0] # Usa a cor primária para as barras
+
+    # --- Lógica interna para gerar o gráfico ---
+    nome_membro = df_membro['Membro'].iloc[0]
+    nome_formatado = " ".join(part.capitalize() for part in nome_membro.split("."))
+    st.subheader(f"Linha do Tempo de Alocações: {nome_formatado}")
+
+    fig = go.Figure()
+    yaxis_labels = []
+    yaxis_pos = []
+    current_pos = 0
+
+    # Itera sobre os projetos para adicionar ao gráfico
+    for i in range(1, 5):
+        col_projeto = f"Projeto {i}"
+        
+        if col_projeto in df_membro.columns and pd.notna(df_membro[col_projeto].iloc[0]):
+            
+            # (Lógica para encontrar datas de início e fim...)
+            col_inicio = f"Início Real Projeto {i}"
+            col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
+            col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
+
+            inicio = df_membro[col_inicio].iloc[0] if col_inicio in df_membro and pd.notna(df_membro[col_inicio].iloc[0]) else None
+            
+            fim = None
+            if col_fim_estimado in df_membro and pd.notna(df_membro[col_fim_estimado].iloc[0]):
+                fim = df_membro[col_fim_estimado].iloc[0]
+            elif col_fim_previsto in df_membro and pd.notna(df_membro[col_fim_previsto].iloc[0]):
+                fim = df_membro[col_fim_previsto].iloc[0]
+
+            if pd.notna(inicio) and pd.notna(fim):
+                current_pos += 1
+                yaxis_labels.append(df_membro[col_projeto].iloc[0])
+                yaxis_pos.append(current_pos)
+                fig.add_trace(go.Scatter(
+                    x=[inicio, fim], y=[current_pos, current_pos],
+                    mode="lines", name=df_membro[col_projeto].iloc[0],
+                    line=dict(color=cor_principal_grafico, width=15),
+                    showlegend=False))
+
+    # --- Configura e exibe o gráfico ---
+    if not yaxis_labels:
+        st.info(f"{nome_formatado} não possui alocações com datas para exibir no gráfico.")
+        return
+        
+    fig.update_layout(
+        title="Linha do Tempo das Alocações",
+        yaxis=dict(tickvals=yaxis_pos, ticktext=yaxis_labels, autorange="reversed"))
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+# ==============================================================================
+# 5. FUNÇÕES DE EXIBIÇÃO (FRONTEND)
+# ==============================================================================
+
+def card_membro(dado_coluna, media_disp, media_afin, cores_nucleo):
+    """Gera o HTML para exibir um card de membro."""
+    nome = " ".join(part.capitalize() for part in dado_coluna['Membro'].split("."))
+    
+    # Define cores com base no tipo de linha (membro vs. média)
+    if "Média Do Núcleo ⚠" == nome or "Média Do Núcleo" == nome:
+        primary_color, bg_color = cores_nucleo
+    else:
+        primary_color, bg_color = "#064381", "#decda9"
+
+    availability_pct = min(100, (dado_coluna['Disponibilidade'] / 30.0) * 100)
+    availability_color = '#2fa83b' if availability_pct > 70 else '#fbac04' if availability_pct >= 40 else '#c93220'
+    
+    affinity_pct = min(100, (dado_coluna['Afinidade'] / 10.0) * 100)
+    affinity_color = '#2fa83b' if affinity_pct > 70 else '#fbac04' if affinity_pct >= 40 else '#c93220'
+    
+    avg_availability_pct = min(100, (media_disp / 30.0) * 100)
+    avg_affinity_pct = min(100, (media_afin / 10.0) * 100)
+
+    card_html = f"""
+    <div style="border: 2px solid #a1a1a1; padding: 15px; border-radius: 10px; width: 700px; color:{primary_color}; margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="flex: 1;">
+                <h3>{nome}</h3>
+                <p style="margin-bottom: 0;">Disponibilidade</p>
+                <div style="width: 80%; background-color: {bg_color}; border-radius: 5px; height: 20px; position: relative; margin-bottom: 5px;">
+                    <div style="width: {availability_pct}%; background-color: {availability_color}; height: 100%;"></div>
+                    <div style="position: absolute; top: 0; bottom: 0; width: 3px; background-color: black; left: {avg_availability_pct}%;"></div>
+                </div>
+                <p style="margin-bottom: 10px;">{dado_coluna['Disponibilidade']:.2f}h / 30.0h</p>
+                <p style="margin-bottom: 0;">Afinidade</p>
+                <div style="width: 80%; background-color: {bg_color}; border-radius: 5px; height: 20px; position: relative;">
+                    <div style="width: {affinity_pct}%; background-color: {affinity_color}; height: 100%;"></div>
+                    <div style="position: absolute; top: 0; bottom: 0; width: 3px; background-color: black; left: {avg_affinity_pct}%;"></div>
+                </div>
+                <p>{dado_coluna['Afinidade']:.2f} / 10.0</p>
+            </div>
+            <div style="text-align: right;"><h3>{dado_coluna['Nota Final']:.2f}</h3></div>
+        </div>
+    </div>
+    """
+
+    # Exibe o card HTML
+    st.markdown(card_html, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# 5. INTERFACE DO USUÁRIO (FRONTEND)
+# 6. LÓGICA PRINCIPAL DA INTERFACE
 # ==============================================================================
 
-# --- Barra Lateral e Navegação ---
-page = st.sidebar.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
-st.title(page)
+# --- Navegação e Título ---
+pagina = st.sidebar.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
+st.title(pagina)
 
-# --- Inicialização do Estado da Sessão ---
+# --- Seleção de Núcleo ---
 if "nucleo" not in st.session_state: st.session_state.nucleo = None
-if "nome" not in st.session_state: st.session_state.nome = ""
-if "cargo" not in st.session_state: st.session_state.cargo = ""
-if "aloc" not in st.session_state: st.session_state.aloc = None
-
-# --- Layout dos Botões de Seleção de Núcleo ---
 colnan, colciv, colcon, coldados, colni, coltec = st.columns([1, 2, 2, 2, 2, 2])
 if colciv.button("NCiv"): st.session_state.nucleo = "NCiv"
 if colcon.button("NCon"): st.session_state.nucleo = "NCon"
@@ -342,161 +406,171 @@ if coldados.button("NDados"): st.session_state.nucleo = "NDados"
 if colni.button("NI"): st.session_state.nucleo = "NI"
 if coltec.button("NTec"): st.session_state.nucleo = "NTec"
 
+# ---------------------------------
+# --- PÁGINA: BASE CONSOLIDADA ---
+# ---------------------------------
 
-# ------------------------------------------------------------------------------
-# PÁGINA: BASE CONSOLIDADA
-# ------------------------------------------------------------------------------
-if page == "Base Consolidada":
+if pagina == "Base Consolidada":
     if st.session_state.nucleo:
-        with st.spinner("Carregando..."):
-            df = nucleo_func(st.session_state.nucleo)
-            df = converte_data(df, DATE_COLUMNS)
+        with st.spinner("Carregando dados da base..."):
+            df = escolher_nucleo(st.session_state.nucleo)
+            if df.empty:
+                st.warning("Nenhum dado encontrado para este núcleo.")
+                st.stop()
 
-            # --- Filtros da Base Consolidada ---
+            # --- Filtros da Página ---
             colcargo, colnome, colaloc = st.columns(3)
-            nome = colnome.text_input("Nome do Membro", key="nome_input_base")
-            cargo = colcargo.text_input("Cargo", key="cargo_input_base")
-            alocações = colaloc.selectbox("Filtrar por Alocações", options=["Desalocado", "1 Alocação", "2 Alocações", "3 Alocações", "4+ Alocações"], key="aloc_input_base")
-            
-            df['Contagem_Alocacoes'] = calcular_contagem_alocacoes(df)
+            #filtro pelo cargo
+            if "Cargo no núcleo" in df.columns:  
+                opcoes_cargo = sorted(df["Cargo no núcleo"].dropna().unique())
+            else:
+                opcoes_cargo = ["Todos"]
+            cargo_filtro = colcargo.selectbox("**Filtrar por Cargo**", options=opcoes_cargo, index= None, placeholder="Selecione o Cargo")
+            #filtro pelo nome
+            opcoes_nome = sorted(df["Membro"].dropna().unique())
+            nome_filtro = colnome.selectbox("**Filtrar por Membro**", options=opcoes_nome, index= None, placeholder="Selecione o Membro")
+            #filtro pelo número de alocações
+            opcoes_aloc = ["Desalocado", "1 Alocação", "2 Alocações", "3 Alocações", "4+ Alocações"]
+            aloc_filtro = colaloc.selectbox("**Filtrar por Número de Alocações**", options=opcoes_aloc, placeholder="Alocações", index=None)
 
             # --- Aplicação dos Filtros ---
-            if nome:
-                df = df[df["Membro"].str.strip().str.lower() == nome.strip().lower()]
-            if cargo:
-                df = df[df["Cargo no núcleo"].str.strip().str.lower() == cargo.strip().lower()]
-
-            if alocações == "Desalocado":
-                df = df[df['Contagem_Alocacoes'] == 0]
-            elif alocações == "1 Alocação":
-                df = df[df['Contagem_Alocacoes'] == 1]
-            elif alocações == "2 Alocações":
-                df = df[df['Contagem_Alocacoes'] == 2]
-            elif alocações == "3 Alocações":
-                df = df[df['Contagem_Alocacoes'] == 3]
-            elif alocações == "4+ Alocações":
-                df = df[df['Contagem_Alocacoes'] >= 4]
+            df['Contagem Alocações'] = calculo_alocacoes(df)
+            if nome_filtro in opcoes_nome:
+                df = df[df["Membro"] == nome_filtro]
+            if cargo_filtro in opcoes_cargo:
+                df = df[df["Cargo no núcleo"] == cargo_filtro]
+            if aloc_filtro:
+                map_aloc = {"Desalocado": 0, "1 Alocação": 1, "2 Alocações": 2, "3 Alocações": 3}
+                if aloc_filtro in map_aloc:
+                    df = df[df['Contagem Alocações'] == map_aloc[aloc_filtro]]
+                elif aloc_filtro == "4+ Alocações":
+                    df = df[df['Contagem Alocações'] >= 4]
 
             # --- Exibição dos Dados ---
-            if df.empty:
-                st.write("Sem informações para os dados filtrados.")
-            else:
-                st.dataframe(df.reset_index(drop=True), hide_index=True)
-            
-            # (Lógica de exibição de gráficos e cards individuais pode ser adicionada aqui)
+            st.dataframe(df.drop(columns=["Contagem Alocações"], errors = 'ignore'), hide_index=True)
 
+            if len(df) == 1:
+                st.markdown("---")
+                # Chama a nova função para desenhar o gráfico para aquele membro
+                exibir_gantt_membro(df_membro=df, nucleo_selecionado=st.session_state.nucleo, cores_por_nucleo=nucleo_cores)
+    
     else:
-        st.info("Por favor, selecione um núcleo para começar.")
+        st.info("Por favor, selecione um núcleo para visualizar a base de dados.")
 
+# --------------------------
+# --- PÁGINA: PCP ---
+# --------------------------
 
-# ------------------------------------------------------------------------------
-# PÁGINA: PCP (Planejamento, Controle e Produção)
-# ------------------------------------------------------------------------------
-if page == "PCP":
+if pagina == "PCP":
     if not st.session_state.nucleo:
         st.warning("Por favor, selecione um núcleo primeiro.", icon="⚠️")
         st.stop()
 
-    df = nucleo_func(st.session_state.nucleo)
-    if df is None or df.empty:
+    df = escolher_nucleo(st.session_state.nucleo)
+    if df.empty:
         st.warning(f"Nenhum dado encontrado para o núcleo: {st.session_state.nucleo}", icon="⚠️")
         st.stop()
 
-    df = converte_data(df, DATE_COLUMNS)
-
     # --- Filtros da Página PCP ---
-    col_escopo, col_analista, col_data = st.columns(3)
-    
-    # Filtro de Portfólio/Escopo
-    with col_escopo:
-        # Lógica para obter escopos dinamicamente (simplificada)
-        escopos = ["Gestão de Processos", "Não mapeado"] # Exemplo, pode ser tornado dinâmico
-        escopo = st.selectbox("**Portfólio**", options=escopos)
+    colport, col2, col3 = st.columns(3)
 
-    # Filtro de Analistas
-    with col_analista:
-        analistas = sorted(df["Membro"].astype(str).unique().tolist(), key=str.lower)
-        analistas_selecionados = st.multiselect("**Analista**", options=analistas, placeholder="Todos")
+    portfolios = { #rever portfolios
+        "NCiv": ["Completo", "Design de Interiores", "HEE", "Sondagem"], 
+        "NCon": ["Gestão de Processos", "Pesquisa de Mercado", "Planejamento Estratégico"],
+        "NDados": ["Ciência de Dados", "Engenharia de Dados", "Inteligência Artificial", "Inteligência de Negócios", "DSaaS"],
+        "NI": ["Inovacamp", "VBaaS", "Quick Inovation"],
+        "NTec": ["Product Discovery", "Desenvolvimento", "Escopo Aberto"]}
+    escopo = colport.selectbox("**Portfólio**", options=portfolios[st.session_state.nucleo], index= None, placeholder="Selecione o portfólio")
+    analistas = sorted(df["Membro"].unique())
+    analistas_selecionados = col2.multiselect("**Analistas**", options=analistas, default=[], placeholder="Selecione os analistas")
+    inicio_proj = col3.date_input("**Data de Início do Projeto**", value=datetime.today().date(), format="DD/MM/YYYY")
 
-    # Filtro de Data de Início
-    with col_data:
-        inicio = st.date_input("**Data de Início do Projeto**", value=datetime.today().date(), format="DD/MM/YYYY")
-    inicio_novo_projeto = pd.Timestamp(inicio)
+    # --- LÓGICA PARA SINCRONIZAR OS PESOS DA DISPONIBILIDADE E AFINIDADE + data fim projeto ---
 
-    # Filtros de Peso e Data de Fim
-    col_disp, col_afin, col_fim = st.columns(3)
+    if 'peso_disp' not in st.session_state:
+        st.session_state.peso_disp = 0.50
+    if 'peso_afin' not in st.session_state:
+        st.session_state.peso_afin = 0.50
+
+    col_disp, col_afin, col6 = st.columns(3)
+
     with col_disp:
-        disponibilidade_weight = st.number_input("**Peso da Disponibilidade (0.3-0.7)**", 0.3, 0.7, 0.5, 0.1)
+        st.number_input(
+            "**Peso da Disponibilidade (0.3 - 0.7)**", min_value=0.3, max_value=0.7, step=0.1,
+            key='peso_disp', # Chave para acessar o valor no st.session_state
+            on_change=lambda: st.session_state.update(changed_input='disp') or sincronizar_pesos())
+
     with col_afin:
-        afinidade_weight = st.number_input("**Peso da Afinidade (0.3-0.7)**", 0.3, 0.7, 0.5, 0.1)
-    with col_fim:
-        default_fim = (pd.Timestamp(inicio) + pd.DateOffset(months=2)).date()
-        fim = st.date_input("**Data de Fim do Projeto**", value=default_fim, min_value=inicio, format="DD/MM/YYYY")
+        st.number_input(
+            "**Peso da Afinidade (0.3 - 0.7)**", min_value=0.3, max_value=0.7, step=0.1,
+            key='peso_afin', # Chave para acessar o valor no st.session_state
+            on_change=lambda: st.session_state.update(changed_input='afin') or sincronizar_pesos())   
+
+    peso_disp = st.session_state.peso_disp
+    peso_afin = st.session_state.peso_afin
+
+    with col6:
+        # Calcula uma data de fim padrão (ex: 2 meses após a data de início)
+        fim_padrao = (pd.to_datetime(inicio_proj) + pd.DateOffset(months=2)).date()
+
+        # Cria o widget para o usuário selecionar ou alterar a data de fim
+        fim_proj = st.date_input("**Data de Fim do Projeto**", value=fim_padrao,      
+            min_value=inicio_proj,      # Garante que a data de fim não seja anterior ao início
+            format="DD/MM/YYYY")
 
     # --- Cálculos das Métricas ---
-    df["Disponibilidade"] = df.apply(lambda row: calcular_disponibilidade(row, inicio_novo_projeto), axis=1)
-    df["Afinidade"] = df.apply(lambda row: calcular_afinidade(row, escopo), axis=1)
+    df["Disponibilidade"] = calculo_disponibilidade(df, pd.Timestamp(inicio_proj))
+    df["Afinidade"] = calculo_afinidade(df, escopo)
     
-    # Normalização da Nota de Disponibilidade
     max_disp, min_disp = 30, df["Disponibilidade"].min()
-    range_disp = max_disp - min_disp
-    df["Nota Disponibilidade"] = 10 * (df["Disponibilidade"] - min_disp) / range_disp if range_disp != 0 else 10
+    range_disp = max_disp - min_disp if max_disp > min_disp else 1
+    df["Nota Disponibilidade"] = 10 * (df["Disponibilidade"] - min_disp) / range_disp
+    df["Nota Final"] = (df["Afinidade"] * peso_afin) + (df["Nota Disponibilidade"] * peso_disp)
 
-    # Cálculo da Nota Final com pesos
-    df["Nota Final"] = (df["Afinidade"] * afinidade_weight) + (df["Nota Disponibilidade"] * disponibilidade_weight)
-
-    # --- Filtragem e Médias ---
-    df_filtrado = df[df["Membro"].isin(analistas_selecionados)] if analistas_selecionados else df
-    
-    if not df_filtrado.empty:
-        dispo_media = df_filtrado["Disponibilidade"].mean()
-        afini_media = df_filtrado["Afinidade"].mean()
+    # --- Filtro e Médias para Exibição ---
+    if "Todos" in analistas_selecionados or not analistas_selecionados:
+        df_filtrado = df
     else:
-        dispo_media, afini_media = 0, 0
-    
-    # --- Exibição dos Resultados ---
+        df_filtrado = df[df["Membro"].isin(analistas_selecionados)]
+
+    avg_disp = df_filtrado["Disponibilidade"].mean() if not df_filtrado.empty else 0
+    avg_afin = df_filtrado["Afinidade"].mean() if not df_filtrado.empty else 0
+    avg_nota_final = df_filtrado["Nota Final"].mean() if not df_filtrado.empty else 0
+
+    # --- Exibição dos Cards ---
     st.markdown("---")
     st.subheader("Membros Sugeridos para o Projeto")
-    st.markdown("""
+    st.markdown(
+        """
     <div style="margin-bottom: 20px">
     <p><strong>Entendendo as pontuações:</strong></p>
     <ul>
       <li><strong>Disponibilidade</strong>: Horas estimadas disponíveis para novas atividades (Máximo: 30h)</li>
-      <li><strong>Afinidade</strong>: Pontuação (0-10) baseada em satisfação, capacidade e saúde mental</li>
+      <li><strong>Afinidade</strong>: Pontuação (0-10) baseada em satisfação com portfólio, capacidade técnica e saúde mental</li>
       <li><strong>Nota Final</strong>: Média ponderada entre disponibilidade e afinidade</li>
     </ul>
     </div>
-    """, unsafe_allow_html=True)
+    """, 
+        unsafe_allow_html=True,)
+    
+    # Aviso da Média do Núcleo
+    if avg_afin < 5.0 or avg_disp < 15.0:
+        nome_media = "média.do.núcleo ⚠"
+    else:
+        nome_media = "média.do.núcleo"
 
-    # --- Geração dos Cards de Resultado ---
+    # Criação do Card Analista Médio
+    dados_da_media = {
+    "Membro": nome_media,
+    "Disponibilidade": avg_disp,
+    "Afinidade": avg_afin,
+    "Nota Final": avg_nota_final
+    }
+    df_filtrado.loc['media'] = dados_da_media
+
+    # Organização e exibição dos Cards da maior nota final para a menor
     display_df = df_filtrado.sort_values(by="Nota Final", ascending=False)
 
-    for index, row in display_df.iterrows():
-        membro_nome = " ".join([part.capitalize() for part in row['Membro'].split(".")])
+    for _, row in display_df.iterrows():
+        card_membro(row, avg_disp, avg_afin, nucleo_cores.get(st.session_state.nucleo))
         
-        st.markdown(f"""
-        <div style="border: 2px solid #a1a1a1; padding: 15px; border-radius: 10px; width: 700px; color:#064381; margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex: 1;">
-                    <h3>{membro_nome}</h3>
-                    
-                    <p style="margin-bottom: 0px;">Disponibilidade</p>
-                    <div style="width: 80%; background-color: #decda9; border-radius: 5px; height: 20px; position: relative; margin-bottom: 5px;">
-                        <div style="width: {min(100, (row['Disponibilidade'] / 30.0) * 100)}%; background-color: {'#2fa83b' if row['Disponibilidade'] > 20 else '#fbac04' if row['Disponibilidade'] >= 10 else '#c93220'}; height: 100%;"></div>
-                        <div style="position: absolute; top: 0; bottom: 0; width: 3px; background-color: black; left: {min(100, (dispo_media / 30.0) * 100)}%;"></div>
-                    </div>
-                    <p style="margin-bottom: 10px;">{row['Disponibilidade']:.2f}h / 30.0h</p>
-
-                    <p style="margin-bottom: 0px;">Afinidade</p>
-                    <div style="width: 80%; background-color: #decda9; border-radius: 5px; height: 20px; position: relative; margin-bottom: 5px;">
-                        <div style="width: {min(100, (row['Afinidade'] / 10.0) * 100)}%; background-color: {'#2fa83b' if row['Afinidade'] > 7 else '#fbac04' if row['Afinidade'] >= 4 else '#c93220'}; height: 100%;"></div>
-                        <div style="position: absolute; top: 0; bottom: 0; width: 3px; background-color: black; left: {min(100, (afini_media / 10.0) * 100)}%;"></div>
-                    </div>
-                    <p>{row['Afinidade']:.2f} / 10.0</p>
-                </div>
-                <div style="text-align: right;">
-                    <h3>{row['Nota Final']:.2f}</h3>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
