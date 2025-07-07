@@ -15,7 +15,6 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-
 # ==============================================================================
 # 2. CONSTANTES E ESTILOS GLOBAIS
 # ==============================================================================
@@ -46,12 +45,21 @@ nucleo_cores = {"NCiv": ("#cd9a0f", "#e0d19b"),
 st.markdown("""
     <style>
         * { font-family: 'Poppins', sans-serif !important; }
-        .st-emotion-cache-ttupiz { background: #064381; }
-        hr { border: 0; background-color: #064381; height: 2px; }
+        
+        [data-testid="stHeader"] {
+            background-color: #064381;
+        }
+
+        hr { 
+            border: 0; 
+            background-color: #064381;
+            height: 2px;
+        }
         #MainMenu, footer { visibility: hidden; }
     </style>
-""", unsafe_allow_html=True)
-
+    """, 
+    unsafe_allow_html=True
+)
 
 # ==============================================================================
 # 3. CARREGAMENTO E CACHE DE DADOS (BACKEND)
