@@ -221,51 +221,39 @@ def calculo_afinidade(df, portfolio):
     return (satisfacao + capacidade + saude_mental_final) / 3
 
 def calculo_alocacoes(df):
-    """Calcula o número total de alocações para cada membro (versão segura e corrigida)."""
-    # Inicializa a série de contagem
+    """Calcula o número total de alocações para cada membro (versão ajustada)."""
     conta = pd.Series(0, index=df.index, dtype=int)
-    data_atual = pd.Timestamp.now()
-
+    
     # --- 1. Contagem de projetos externos ---
     for i in range(1, 5):
         col_projeto = f"Projeto {i}"
         if col_projeto in df.columns:
             
-            # --- LÓGICA SEGURA CONTRA COLUNAS AUSENTES ---
-            col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
-            col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
-
-            # Acessa a coluna de data apenas se ela existir, senão considera como vazia (NaT)
-            fim_estimado = df[col_fim_estimado] if col_fim_estimado in df else pd.Series(pd.NaT, index=df.index)
-            fim_previsto = df[col_fim_previsto] if col_fim_previsto in df else pd.Series(pd.NaT, index=df.index)
-            
-            # Agora a operação .fillna() é 100% segura
-            fim_final = fim_estimado.fillna(fim_previsto)
-            
-            # Condição de projeto ativo
-            ativo = df[col_projeto].notna() & ((fim_final.isna()) | (fim_final > data_atual))
+            # --- LÓGICA ALTERADA ---
+            # Agora, um projeto conta como uma alocação simplesmente se ele existe (tem um nome na célula).
+            # A verificação da data de fim foi removida para esta contagem.
+            ativo = df[col_projeto].notna()
             conta += ativo.astype(int)
 
-    # --- 2. Contagem de atividades que valem 1 cada (flags) ---
+    # --- 2. Contagem de atividades "flag" ---
     atividades_simples = ["Projeto Interno 1", "Projeto Interno 2", "Projeto Interno 3", "Cargo WI", "Cargo MKT"]
     for col in atividades_simples:
         if col in df.columns:
             conta += df[col].notna().astype(int)
 
-    # --- 3. Soma dos valores das células para atividades numéricas ---
+    # --- 3. Soma dos valores de atividades numéricas ---
     atividades_numericas = ["N° Aprendizagens", "N° Assessorias"]
     for col in atividades_numericas:
         if col in df.columns:
             valores_numericos = pd.to_numeric(df[col], errors='coerce').fillna(0)
             conta += valores_numericos.astype(int)
 
-    # --- 4. Contagem de cargos ---
-    for col in df.columns:
-        if col in df.columns and col.startswith("Cargo no núcleo"):
-            # Verifica se o cargo é do comercial
-            if df[col].str.contains("Comercial", case=False, na=False).any():
-                conta += df[col].notna().astype(int)
-
+    # --- 4. Contagem de cargos específicos (LÓGICA CORRIGIDA) ---
+    if "Cargo no núcleo" in df.columns:
+        # Adiciona 1 se o cargo contiver a palavra "Comercial"
+        eh_comercial = df["Cargo no núcleo"].str.contains("Comercial", case=False, na=False)
+        conta += eh_comercial.astype(int)
+        
     return conta
 
 def sincronizar_pesos():
