@@ -44,25 +44,13 @@ nucleo_cores = {"NCiv": ("#cd9a0f", "#e0d19b"),
 # --- Estilo CSS Customizado ---
 st.markdown("""
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-
     <style>
         * { font-family: 'Poppins', sans-serif !important; }
-        
-        [data-testid="stHeader"] {
-            background-color: #064381;
-        }
-
-        hr { 
-            border: 0; 
-            background-color: #064381;
-            height: 2px;
-        }
-            
+        [data-testid="stHeader"] { background-color: #064381; }
+        hr { border: 0; background-color: #064381;height: 2px; }
         #MainMenu, footer { visibility: hidden; }
     </style>
-    """, 
-    unsafe_allow_html=True
-)
+    """, unsafe_allow_html=True)
 
 # ==============================================================================
 # 3. CARREGAMENTO E CACHE DE DADOS (BACKEND)
@@ -427,7 +415,10 @@ def card_membro(dado_coluna, media_disp, media_afin, cores_nucleo):
 # ==============================================================================
 
 # --- Navegação e Título ---
-pagina = st.sidebar.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
+with st.sidebar:
+    st.markdown("<i class='material-icons' style='font-size: 2em; color: #064381;'>keyboard_double_arrow_right</i>", unsafe_allow_html=True)
+    st.markdown("---") 
+    pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
 st.title(pagina)
 
 # --- Seleção de Núcleo ---
