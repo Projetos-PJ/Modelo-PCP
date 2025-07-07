@@ -44,13 +44,25 @@ nucleo_cores = {"NCiv": ("#cd9a0f", "#e0d19b"),
 # --- Estilo CSS Customizado ---
 st.markdown("""
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
     <style>
+        /* Seus estilos globais */
         * { font-family: 'Poppins', sans-serif !important; }
         [data-testid="stHeader"] { background-color: #064381; }
-        hr { border: 0; background-color: #064381;height: 2px; }
         #MainMenu, footer { visibility: hidden; }
+
+        /* 2. Estilo específico para o nosso ícone na barra lateral */
+        .sidebar-icon {
+            padding-top: 10px;      /* Espaço no topo */
+            padding-left: 15px;     /* Espaço na esquerda */
+            font-size: 2.2em;       /* Tamanho do ícone */
+            color: #064381;      /* Cor do ícone */
+            text-align: left;       /* Alinhamento */
+        }
     </style>
-    """, unsafe_allow_html=True)
+    """, 
+    unsafe_allow_html=True
+)
 
 # ==============================================================================
 # 3. CARREGAMENTO E CACHE DE DADOS (BACKEND)
@@ -416,9 +428,16 @@ def card_membro(dado_coluna, media_disp, media_afin, cores_nucleo):
 
 # --- Navegação e Título ---
 with st.sidebar:
-    st.markdown("<i class='material-icons' style='font-size: 2em; color: #064381;'>keyboard_double_arrow_right</i>", unsafe_allow_html=True)
-    st.markdown("---") 
+    # 3. Adiciona o ícone usando a classe de estilo que criamos
+    st.markdown("<div class='sidebar-icon'><i class='material-icons'>keyboard_double_arrow_right</i></div>", unsafe_allow_html=True)
+    
+    # Adiciona uma linha divisória para separar
+    st.markdown("---")
+    
+    # Seus outros widgets da barra lateral
     pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
+    # ... adicione outros elementos da sidebar aqui se tiver
+    
 st.title(pagina)
 
 # --- Seleção de Núcleo ---
