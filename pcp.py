@@ -414,7 +414,12 @@ def card_membro(dado_coluna, media_disp, media_afin, cores_nucleo):
 # ==============================================================================
 
 # --- Navegação e Título ---
-pagina = st.sidebar.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
+with st.sidebar:
+    # Use o HTML completo para criar o ícone
+    st.markdown("<i class='material-icons'>keyboard_double_arrow_right</i>", unsafe_allow_html=True)
+    
+    # Seus outros widgets...
+    pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
 st.title(pagina)
 
 # --- Seleção de Núcleo ---
