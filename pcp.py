@@ -427,7 +427,7 @@ def card_membro(dado_coluna, media_disp, media_afin, cores_nucleo):
 # ==============================================================================
 
 # --- Navegação e Título ---
-pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
+pagina = st.sidebar.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
 st.title(pagina)
 
 # --- Seleção de Núcleo ---
