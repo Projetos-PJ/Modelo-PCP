@@ -43,6 +43,8 @@ nucleo_cores = {"NCiv": ("#cd9a0f", "#e0d19b"),
 
 # --- Estilo CSS Customizado ---
 st.markdown("""
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
     <style>
         * { font-family: 'Poppins', sans-serif !important; }
         
@@ -55,6 +57,7 @@ st.markdown("""
             background-color: #064381;
             height: 2px;
         }
+            
         #MainMenu, footer { visibility: hidden; }
     </style>
     """, 
