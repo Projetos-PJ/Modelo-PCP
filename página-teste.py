@@ -280,16 +280,19 @@ def sincronizar_pesos():
         st.session_state.peso_disp = round(1.0 - st.session_state.peso_afin, 2)
 
 def exibir_gantt_membro(df_membro, nucleo_selecionado, cores_por_nucleo):
-    """Gera e exibe um gráfico de Gantt para as alocações de um único membro, usando as cores do núcleo selecionado."""
+    """
+    Gera e exibe um gráfico de Gantt completo com todas as alocações de um membro (versão segura).
+    """
     if df_membro.empty or len(df_membro) > 1:
         st.warning("Selecione um único membro para ver o gráfico de alocações.")
         return
 
-    # Busca as cores para o núcleo atual ou usa um padrão se não encontrar
+    # --- Prepara Cores e Dados Iniciais ---
     cores_atuais = cores_por_nucleo.get(nucleo_selecionado, ("#064381", "#decda9"))
-    cor_principal_grafico = cores_atuais[0] # Usa a cor primária para as barras
+    cor_proj_externo = cores_atuais[0]
+    cor_proj_interno = cores_atuais[1]
+    cor_atividades_extra = "#c72fc7"
 
-    # --- Lógica interna para gerar o gráfico ---
     nome_membro = df_membro['Membro'].iloc[0]
     nome_formatado = " ".join(part.capitalize() for part in nome_membro.split("."))
     st.subheader(f"Linha do Tempo de Alocações: {nome_formatado}")
@@ -299,19 +302,15 @@ def exibir_gantt_membro(df_membro, nucleo_selecionado, cores_por_nucleo):
     yaxis_pos = []
     current_pos = 0
 
-    # Itera sobre os projetos para adicionar ao gráfico
+    # --- 1. Adiciona Projetos Externos ---
     for i in range(1, 5):
         col_projeto = f"Projeto {i}"
-        
         if col_projeto in df_membro.columns and pd.notna(df_membro[col_projeto].iloc[0]):
-            
-            # (Lógica para encontrar datas de início e fim...)
             col_inicio = f"Início Real Projeto {i}"
             col_fim_estimado = f"Fim estimado do Projeto {i} (com atraso)"
             col_fim_previsto = f"Fim previsto do Projeto {i} (sem atraso)"
-
-            inicio = df_membro[col_inicio].iloc[0] if col_inicio in df_membro and pd.notna(df_membro[col_inicio].iloc[0]) else None
             
+            inicio = df_membro[col_inicio].iloc[0] if col_inicio in df_membro and pd.notna(df_membro[col_inicio].iloc[0]) else None
             fim = None
             if col_fim_estimado in df_membro and pd.notna(df_membro[col_fim_estimado].iloc[0]):
                 fim = df_membro[col_fim_estimado].iloc[0]
@@ -322,11 +321,44 @@ def exibir_gantt_membro(df_membro, nucleo_selecionado, cores_por_nucleo):
                 current_pos += 1
                 yaxis_labels.append(df_membro[col_projeto].iloc[0])
                 yaxis_pos.append(current_pos)
-                fig.add_trace(go.Scatter(
-                    x=[inicio, fim], y=[current_pos, current_pos],
-                    mode="lines", name=df_membro[col_projeto].iloc[0],
-                    line=dict(color=cor_principal_grafico, width=15),
-                    showlegend=False))
+                fig.add_trace(go.Scatter(x=[inicio, fim], y=[current_pos, current_pos], mode="lines", name=df_membro[col_projeto].iloc[0], line=dict(color=cor_proj_externo, width=15), showlegend=False))
+
+    # --- 2. Adiciona Projetos Internos (LÓGICA CORRIGIDA) ---
+    for i in range(1, 4):
+        col_projeto = f"Projeto Interno {i}"
+        if col_projeto in df_membro.columns and pd.notna(df_membro[col_projeto].iloc[0]):
+            
+            col_inicio = f"Início do Projeto Interno {i}"
+            col_fim = f"Fim do Projeto Interno {i}"
+            
+            inicio = df_membro[col_inicio].iloc[0] if col_inicio in df_membro and pd.notna(df_membro[col_inicio].iloc[0]) else None
+            fim = df_membro[col_fim].iloc[0] if col_fim in df_membro and pd.notna(df_membro[col_fim].iloc[0]) else None
+            
+            if pd.notna(inicio) and pd.notna(fim):
+                current_pos += 1
+                yaxis_labels.append(df_membro[col_projeto].iloc[0])
+                yaxis_pos.append(current_pos)
+                fig.add_trace(go.Scatter(x=[inicio, fim], y=[current_pos, current_pos], mode="lines", name=df_membro[col_projeto].iloc[0], line=dict(color=cor_proj_interno, width=15), showlegend=False))
+
+    # --- 3. Adiciona Alocações Extras (Aprendizagens/Assessorias) ---
+    hoje = datetime.today()
+    trimestre_inicio_mes = ((hoje.month - 1) // 3) * 3 + 1
+    data_inicio_trimestre = datetime(hoje.year, trimestre_inicio_mes, 1)
+    data_fim_trimestre = (data_inicio_trimestre + pd.DateOffset(months=3)) - pd.DateOffset(days=1)
+
+    if "N° Aprendizagens" in df_membro.columns and pd.to_numeric(df_membro["N° Aprendizagens"].iloc[0], errors='coerce') > 0:
+        current_pos += 1
+        label = f"Aprendizagem(ns) ({int(df_membro['N° Aprendizagens'].iloc[0])})"
+        yaxis_labels.append(label)
+        yaxis_pos.append(current_pos)
+        fig.add_trace(go.Scatter(x=[data_inicio_trimestre, data_fim_trimestre], y=[current_pos, current_pos], mode="lines", name=label, line=dict(color=cor_atividades_extra, width=15), showlegend=False))
+
+    if "N° Assessorias" in df_membro.columns and pd.to_numeric(df_membro["N° Assessorias"].iloc[0], errors='coerce') > 0:
+        current_pos += 1
+        label = f"Assessoria(s) ({int(df_membro['N° Assessorias'].iloc[0])})"
+        yaxis_labels.append(label)
+        yaxis_pos.append(current_pos)
+        fig.add_trace(go.Scatter(x=[data_inicio_trimestre, data_fim_trimestre], y=[current_pos, current_pos], mode="lines", name=label, line=dict(color=cor_atividades_extra, width=15), showlegend=False))
 
     # --- Configura e exibe o gráfico ---
     if not yaxis_labels:
@@ -334,9 +366,11 @@ def exibir_gantt_membro(df_membro, nucleo_selecionado, cores_por_nucleo):
         return
         
     fig.update_layout(
-        title="Linha do Tempo das Alocações",
-        yaxis=dict(tickvals=yaxis_pos, ticktext=yaxis_labels, autorange="reversed"))
-    
+        xaxis_title=None, yaxis_title=None,
+        xaxis=dict(tickformat="%d/%m/%Y", showgrid=True, gridcolor='lightgrey'),
+        yaxis=dict(tickvals=yaxis_pos, ticktext=yaxis_labels, autorange="reversed"),
+        plot_bgcolor='white', margin=dict(l=20, r=20, t=20, b=20)
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 # ==============================================================================
