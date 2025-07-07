@@ -427,17 +427,7 @@ def card_membro(dado_coluna, media_disp, media_afin, cores_nucleo):
 # ==============================================================================
 
 # --- Navegação e Título ---
-with st.sidebar:
-    # 3. Adiciona o ícone usando a classe de estilo que criamos
-    st.markdown("<div class='sidebar-icon'><i class='material-icons'>keyboard_double_arrow_right</i></div>", unsafe_allow_html=True)
-    
-    # Adiciona uma linha divisória para separar
-    st.markdown("---")
-    
-    # Seus outros widgets da barra lateral
-    pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
-    # ... adicione outros elementos da sidebar aqui se tiver
-    
+pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
 st.title(pagina)
 
 # --- Seleção de Núcleo ---
