@@ -12,7 +12,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import plotly.graph_objects as go
 
 # --- Configuração da Página e Logging ---
-st.set_page_config(page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Ambiente de Projetos", layout="wide", initial_sidebar_state="auto")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # ==============================================================================
@@ -414,12 +414,7 @@ def card_membro(dado_coluna, media_disp, media_afin, cores_nucleo):
 # ==============================================================================
 
 # --- Navegação e Título ---
-with st.sidebar:
-    # Use o HTML completo para criar o ícone
-    st.markdown("<i class='material-icons'>keyboard_double_arrow_right</i>", unsafe_allow_html=True)
-    
-    # Seus outros widgets...
-    pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
+pagina = st.selectbox("Escolha uma página", ("Base Consolidada", "PCP"))
 st.title(pagina)
 
 # --- Seleção de Núcleo ---
