@@ -44,25 +44,12 @@ nucleo_cores = {"NCiv": ("#cd9a0f", "#e0d19b"),
 # --- Estilo CSS Customizado ---
 st.markdown("""
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-
     <style>
-        /* Seus estilos globais */
         * { font-family: 'Poppins', sans-serif !important; }
         [data-testid="stHeader"] { background-color: #064381; }
         #MainMenu, footer { visibility: hidden; }
-
-        /* 2. Estilo específico para o nosso ícone na barra lateral */
-        .sidebar-icon {
-            padding-top: 10px;      /* Espaço no topo */
-            padding-left: 15px;     /* Espaço na esquerda */
-            font-size: 2.2em;       /* Tamanho do ícone */
-            color: #064381;      /* Cor do ícone */
-            text-align: left;       /* Alinhamento */
-        }
     </style>
-    """, 
-    unsafe_allow_html=True
-)
+    """, unsafe_allow_html=True)
 
 # ==============================================================================
 # 3. CARREGAMENTO E CACHE DE DADOS (BACKEND)
