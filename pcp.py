@@ -266,9 +266,7 @@ def sincronizar_pesos():
         st.session_state.peso_disp = round(1.0 - st.session_state.peso_afin, 2)
 
 def exibir_gantt_membro(df_membro, nucleo_selecionado, cores_por_nucleo):
-    """
-    Gera e exibe um gráfico de Gantt completo com todas as alocações de um membro (versão segura).
-    """
+    """Gera e exibe um gráfico de Gantt completo com todas as alocações de um membro (versão segura)."""
     if df_membro.empty or len(df_membro) > 1:
         st.warning("Selecione um único membro para ver o gráfico de alocações.")
         return
@@ -351,12 +349,37 @@ def exibir_gantt_membro(df_membro, nucleo_selecionado, cores_por_nucleo):
         st.info(f"{nome_formatado} não possui alocações com datas para exibir no gráfico.")
         return
         
+    # --- LÓGICA PARA DEFINIR O INTERVALO DO EIXO X ---
+    hoje = datetime.today()
+    trimestre_inicio_mes = ((hoje.month - 1) // 3) * 3 + 1
+    data_inicio_grafico = datetime(hoje.year, trimestre_inicio_mes, 1)
+    data_fim_grafico = (data_inicio_grafico + pd.DateOffset(months=3)) - pd.DateOffset(days=1)
+    
+    # --- ATUALIZAÇÃO DO LAYOUT DO GRÁFICO ---
     fig.update_layout(
-        xaxis_title=None, yaxis_title=None,
-        xaxis=dict(tickformat="%d/%m/%Y", showgrid=True, gridcolor='lightgrey'),
-        yaxis=dict(tickvals=yaxis_pos, ticktext=yaxis_labels, autorange="reversed"),
-        plot_bgcolor='white', margin=dict(l=20, r=20, t=20, b=20)
+        xaxis_title=None, 
+        yaxis_title=None,
+        
+        # --- AJUSTE NO EIXO X (TEMPORAL) ---
+        xaxis=dict(
+            tickformat="%d/%m",      # Formato do texto do tick (Dia/Mês)
+            tickmode='linear',      # Modo linear para usar o dtick
+            dtick="D15",            # Define um tick a cada 15 dias
+            range=[data_inicio_grafico, data_fim_grafico], # Fixa o intervalo de visualização
+            showgrid=True, 
+            gridcolor='lightgrey'
+        ),
+        # ------------------------------------
+
+        yaxis=dict(
+            tickvals=yaxis_pos, 
+            ticktext=yaxis_labels, 
+            autorange="reversed"
+        ),
+        plot_bgcolor='white', 
+        margin=dict(l=20, r=20, t=20, b=20)
     )
+    
     st.plotly_chart(fig, use_container_width=True)
 
 # ==============================================================================
